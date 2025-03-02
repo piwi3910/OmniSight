@@ -1,4 +1,4 @@
-import amqp from 'amqplib';
+import * as amqp from 'amqplib';
 import config from '../config/config';
 import logger from './logger';
 import { processVideoFrame } from './recordingManager';
@@ -21,71 +21,79 @@ export const initRabbitMQ = async (): Promise<void> => {
     logger.info('Connected to RabbitMQ');
     
     // Create channel
-    channel = await connection.createChannel();
-    logger.info('Created RabbitMQ channel');
-    
-    // Set up exchanges
-    await channel.assertExchange(config.rabbitmq.frameExchange, 'topic', { durable: true });
-    await channel.assertExchange(config.rabbitmq.eventExchange, 'topic', { durable: true });
-    logger.info('RabbitMQ exchanges set up');
-    
-    // Set up queue for video frames
-    const queueName = 'recording.frames';
-    await channel.assertQueue(queueName, { durable: true });
-    
-    // Bind queue to exchange with routing pattern for all cameras and streams
-    await channel.bindQueue(queueName, config.rabbitmq.frameExchange, 'camera.#');
-    logger.info(`Bound queue ${queueName} to exchange ${config.rabbitmq.frameExchange}`);
-    
-    // Set prefetch count to limit the number of unacknowledged messages
-    await channel.prefetch(10);
-    
-    // Consume messages
-    await channel.consume(queueName, async (msg) => {
-      if (!msg) return;
+    if (connection) {
+      channel = await connection.createChannel();
+      logger.info('Created RabbitMQ channel');
       
-      try {
-        // Extract routing key parts
-        const routingKey = msg.fields.routingKey;
-        const parts = routingKey.split('.');
+      // Set up exchanges
+      if (channel) {
+        await channel.assertExchange(config.rabbitmq.frameExchange, 'topic', { durable: true });
+        await channel.assertExchange(config.rabbitmq.eventExchange, 'topic', { durable: true });
+        logger.info('RabbitMQ exchanges set up');
         
-        if (parts.length >= 4 && parts[0] === 'camera' && parts[2] === 'stream') {
-          const cameraId = parts[1];
-          const streamId = parts[3];
+        // Set up queue for video frames
+        const queueName = 'recording.frames';
+        await channel.assertQueue(queueName, { durable: true });
+        
+        // Bind queue to exchange with routing pattern for all cameras and streams
+        await channel.bindQueue(queueName, config.rabbitmq.frameExchange, 'camera.#');
+        logger.info(`Bound queue ${queueName} to exchange ${config.rabbitmq.frameExchange}`);
+        
+        // Set prefetch count to limit the number of unacknowledged messages
+        await channel.prefetch(10);
+        
+        // Consume messages
+        await channel.consume(queueName, async (msg) => {
+          if (!msg) return;
           
-          // Get timestamp from message properties or use current time
-          const timestamp = msg.properties.timestamp 
-            ? new Date(msg.properties.timestamp) 
-            : new Date();
-          
-          // Process video frame
-          await processVideoFrame(cameraId, streamId, msg.content, timestamp);
-        }
+          try {
+            // Extract routing key parts
+            const routingKey = msg.fields.routingKey;
+            const parts = routingKey.split('.');
+            
+            if (parts.length >= 4 && parts[0] === 'camera' && parts[2] === 'stream') {
+              const cameraId = parts[1];
+              const streamId = parts[3];
+              
+              // Get timestamp from message properties or use current time
+              const timestamp = msg.properties.timestamp
+                ? new Date(msg.properties.timestamp)
+                : new Date();
+              
+              // Process video frame
+              await processVideoFrame(cameraId, streamId, msg.content, timestamp);
+            }
+            
+            // Acknowledge message
+            if (channel) {
+              channel.ack(msg);
+            }
+          } catch (error) {
+            logger.error('Error processing message:', error);
+            
+            // Reject message and requeue if it's a temporary error
+            if (channel) {
+              channel.nack(msg, false, true);
+            }
+          }
+        });
         
-        // Acknowledge message
-        channel.ack(msg);
-      } catch (error) {
-        logger.error('Error processing message:', error);
-        
-        // Reject message and requeue if it's a temporary error
-        channel.nack(msg, false, true);
+        logger.info(`Started consuming messages from queue ${queueName}`);
       }
-    });
-    
-    logger.info(`Started consuming messages from queue ${queueName}`);
-    
-    // Handle connection close
-    connection.on('close', () => {
-      logger.error('RabbitMQ connection closed');
-      // Attempt to reconnect after delay
-      setTimeout(initRabbitMQ, 5000);
-    });
-    
-    // Handle errors
-    connection.on('error', (err) => {
-      logger.error('RabbitMQ connection error:', err);
-      // Connection will close and trigger the 'close' event
-    });
+      
+      // Handle connection close
+      connection.on('close', () => {
+        logger.error('RabbitMQ connection closed');
+        // Attempt to reconnect after delay
+        setTimeout(initRabbitMQ, 5000);
+      });
+      
+      // Handle errors
+      connection.on('error', (err) => {
+        logger.error('RabbitMQ connection error:', err);
+        // Connection will close and trigger the 'close' event
+      });
+    }
   } catch (error) {
     logger.error('Failed to connect to RabbitMQ:', error);
     // Attempt to reconnect after delay

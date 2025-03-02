@@ -136,7 +136,7 @@ export const startRecording = async (
     
     // Publish recording error event
     await publishRecordingEvent(cameraId, 'error', 'error', {
-      error: error.message,
+      error: error instanceof Error ? error.message : String(error),
       timestamp: new Date().toISOString()
     });
     
@@ -160,11 +160,13 @@ export const processVideoFrame = async (
     
     if (!recording) {
       // Start a new recording
-      recording = await startRecording(cameraId, streamId, `Camera ${cameraId}`);
+      const newRecording = await startRecording(cameraId, streamId, `Camera ${cameraId}`);
       
-      if (!recording) {
+      if (!newRecording) {
         throw new Error(`Failed to start recording for camera ${cameraId}, stream ${streamId}`);
       }
+      
+      recording = newRecording;
     }
     
     // Check if we need to start a new segment
