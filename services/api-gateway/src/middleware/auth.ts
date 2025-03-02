@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt from 'jsonwebtoken';
+import jwt, { SignOptions } from 'jsonwebtoken';
 import config from '../config/config';
 import logger from '../utils/logger';
 
@@ -45,7 +45,7 @@ export const authenticate = (req: Request, res: Response, next: NextFunction): v
     const token = parts[1];
     
     // Verify token
-    jwt.verify(token, config.jwt.secret, (err, decoded) => {
+    jwt.verify(token, config.jwt.secret, (err: Error | null, decoded: any) => {
       if (err) {
         if (err.name === 'TokenExpiredError') {
           res.status(401).json({ error: 'Token expired' });
@@ -93,14 +93,16 @@ export const authorize = (roles: string[]): (req: Request, res: Response, next: 
  * Generate JWT token
  */
 export const generateToken = (payload: Omit<JwtPayload, 'iat' | 'exp'>): string => {
-  return jwt.sign(payload, config.jwt.secret, { expiresIn: config.jwt.expiresIn });
+  const options: SignOptions = { expiresIn: config.jwt.expiresIn };
+  return jwt.sign(payload, config.jwt.secret, options);
 };
 
 /**
  * Generate refresh token
  */
 export const generateRefreshToken = (payload: Omit<JwtPayload, 'iat' | 'exp'>): string => {
-  return jwt.sign(payload, config.jwt.secret, { expiresIn: config.jwt.refreshExpiresIn });
+  const options: SignOptions = { expiresIn: config.jwt.refreshExpiresIn };
+  return jwt.sign(payload, config.jwt.secret, options);
 };
 
 /**
