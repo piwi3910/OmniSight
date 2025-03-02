@@ -1,0 +1,237 @@
+version: '3.8'
+
+services:
+  # Database
+  postgres:
+    image: postgres:14-alpine
+    container_name: omnisight-postgres
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${DB_NAME:-omnisight}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - omnisight-network
+
+  # Message Queue
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: omnisight-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - omnisight-network
+
+  # API Gateway
+  api-gateway:
+    build:
+      context: ./services/api-gateway
+      dockerfile: Dockerfile
+    container_name: omnisight-api-gateway
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 8000
+      JWT_SECRET: ${JWT_SECRET:-omnisight_jwt_secret}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-1h}
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET:-omnisight_refresh_token_secret}
+      REFRESH_TOKEN_EXPIRATION: ${REFRESH_TOKEN_EXPIRATION:-7d}
+      STREAM_INGESTION_SERVICE_URL: http://stream-ingestion:3001
+      RECORDING_SERVICE_URL: http://recording:3002
+      OBJECT_DETECTION_SERVICE_URL: http://object-detection:3003
+      METADATA_EVENTS_SERVICE_URL: http://metadata-events:3004
+    ports:
+      - "${API_GATEWAY_PORT:-8000}:8000"
+    depends_on:
+      - stream-ingestion
+      - recording
+      - object-detection
+      - metadata-events
+    networks:
+      - omnisight-network
+    volumes:
+      - ./services/api-gateway:/app
+      - /app/node_modules
+    command: npm run dev
+
+  # Stream Ingestion Service
+  stream-ingestion:
+    build:
+      context: ./services/stream-ingestion
+      dockerfile: Dockerfile
+    container_name: omnisight-stream-ingestion
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3001
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-omnisight}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      RECORDING_SERVICE_URL: http://recording:3002
+    ports:
+      - "${STREAM_INGESTION_PORT:-3001}:3001"
+    depends_on:
+      - postgres
+      - rabbitmq
+    networks:
+      - omnisight-network
+    volumes:
+      - ./services/stream-ingestion:/app
+      - /app/node_modules
+      - stream-data:/app/data
+    command: npm run dev
+
+  # Recording Service
+  recording:
+    build:
+      context: ./services/recording
+      dockerfile: Dockerfile
+    container_name: omnisight-recording
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3002
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-omnisight}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      RECORDINGS_PATH: /app/recordings
+      SEGMENT_DURATION: ${SEGMENT_DURATION:-600}
+    ports:
+      - "${RECORDING_PORT:-3002}:3002"
+    depends_on:
+      - postgres
+      - rabbitmq
+    networks:
+      - omnisight-network
+    volumes:
+      - ./services/recording:/app
+      - /app/node_modules
+      - recordings:/app/recordings
+    command: npm run dev
+
+  # Object Detection Service
+  object-detection:
+    build:
+      context: ./services/object-detection
+      dockerfile: Dockerfile
+    container_name: omnisight-object-detection
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3003
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      METADATA_EVENTS_SERVICE_URL: http://metadata-events:3004
+      DETECTION_INTERVAL: ${DETECTION_INTERVAL:-1000}
+      MIN_CONFIDENCE: ${MIN_CONFIDENCE:-0.6}
+    ports:
+      - "${OBJECT_DETECTION_PORT:-3003}:3003"
+    depends_on:
+      - rabbitmq
+      - metadata-events
+    networks:
+      - omnisight-network
+    volumes:
+      - ./services/object-detection:/app
+      - /app/node_modules
+    command: npm run dev
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # Metadata & Events Service
+  metadata-events:
+    build:
+      context: ./services/metadata-events
+      dockerfile: Dockerfile
+    container_name: omnisight-metadata-events
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3004
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-postgres}
+      DB_NAME: ${DB_NAME:-omnisight}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+    ports:
+      - "${METADATA_EVENTS_PORT:-3004}:3004"
+    depends_on:
+      - postgres
+      - rabbitmq
+    networks:
+      - omnisight-network
+    volumes:
+      - ./services/metadata-events:/app
+      - /app/node_modules
+      - thumbnails:/app/thumbnails
+    command: npm run dev
+
+  # Frontend Service
+  frontend:
+    build:
+      context: ./services/frontend
+      dockerfile: Dockerfile
+    container_name: omnisight-frontend
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: 3000
+      REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:8000/api/v1}
+      REACT_APP_WS_URL: ${REACT_APP_WS_URL:-ws://localhost:8000/api/v1/ws}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      - api-gateway
+    networks:
+      - omnisight-network
+    volumes:
+      - ./services/frontend:/app
+      - /app/node_modules
+    command: npm start
+
+networks:
+  omnisight-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  rabbitmq-data:
+  recordings:
+  stream-data:
+  thumbnails:
