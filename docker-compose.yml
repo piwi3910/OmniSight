@@ -164,13 +164,6 @@ services:
       - ./services/object-detection:/app
       - /app/node_modules
     command: npm run dev
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
 
   # Metadata & Events Service
   metadata-events:
