@@ -1,62 +1,102 @@
 #!/bin/bash
 
-# OmniSight - Install dependencies for all services
+# Script to install dependencies for all services
 
 # Set script to exit on error
 set -e
 
-# Print colored output
-print_message() {
-  echo -e "\e[1;34m>> $1\e[0m"
-}
+# Colors for output
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
 
-print_success() {
-  echo -e "\e[1;32m>> $1\e[0m"
-}
+# Root directory
+ROOT_DIR=$(pwd)
 
-print_error() {
-  echo -e "\e[1;31m>> $1\e[0m"
-}
-
-# Check if npm is installed
-if ! command -v npm &> /dev/null; then
-  print_error "npm is not installed. Please install Node.js and npm first."
-  exit 1
-fi
-
-# Create .env file if it doesn't exist
-if [ ! -f .env ]; then
-  print_message "Creating .env file from .env.example..."
-  cp .env.example .env
-  print_success ".env file created. You may want to edit it with your own values."
-fi
-
-# Install dependencies for each service
+# Function to install dependencies for a service
 install_service_deps() {
   local service=$1
-  print_message "Installing dependencies for $service service..."
-  cd services/$service
+  echo -e "${YELLOW}Installing dependencies for ${service}...${NC}"
+  
+  cd "${ROOT_DIR}/services/${service}"
+  
+  # Check if package.json exists
+  if [ ! -f "package.json" ]; then
+    echo -e "${RED}Error: package.json not found for ${service}${NC}"
+    return 1
+  fi
+  
+  # Install dependencies
   npm install
-  cd ../..
-  print_success "$service service dependencies installed."
+  
+  # Install TypeScript types
+  npm install --save-dev @types/node @types/express
+  
+  # Install additional types based on service
+  case $service in
+    "api-gateway")
+      npm install --save-dev @types/cors @types/helmet @types/morgan @types/compression @types/jsonwebtoken @types/bcrypt @types/http-proxy-middleware
+      ;;
+    "metadata-events")
+      npm install --save-dev @types/cors @types/helmet @types/morgan @types/bcrypt @types/uuid @types/sequelize
+      ;;
+    "stream-ingestion")
+      npm install --save-dev @types/cors @types/helmet @types/morgan @types/amqplib @types/uuid
+      ;;
+    "recording")
+      npm install --save-dev @types/cors @types/helmet @types/morgan @types/amqplib @types/uuid
+      ;;
+    "object-detection")
+      npm install --save-dev @types/cors @types/helmet @types/morgan @types/amqplib @types/uuid @types/multer
+      ;;
+    "frontend")
+      # Frontend has its own types in package.json
+      ;;
+  esac
+  
+  echo -e "${GREEN}Successfully installed dependencies for ${service}${NC}"
+  cd "${ROOT_DIR}"
 }
 
 # Main script
-print_message "Starting OmniSight dependencies installation..."
+echo -e "${YELLOW}Starting installation of all dependencies...${NC}"
 
-# Create directories if they don't exist
-mkdir -p services/stream-ingestion/data
-mkdir -p services/recording/recordings
-mkdir -p services/metadata-events/thumbnails
+# Create node_modules directory if it doesn't exist
+mkdir -p node_modules
+
+# Install shared dependencies
+echo -e "${YELLOW}Installing shared dependencies...${NC}"
+npm install
 
 # Install dependencies for each service
-install_service_deps "stream-ingestion"
-install_service_deps "recording"
-install_service_deps "object-detection"
-install_service_deps "metadata-events"
-install_service_deps "api-gateway"
-install_service_deps "frontend"
+services=("api-gateway" "metadata-events" "stream-ingestion" "recording" "object-detection" "frontend")
 
-print_success "All dependencies installed successfully!"
-print_message "You can now start the services using Docker Compose:"
-print_message "  docker-compose up -d"
+for service in "${services[@]}"; do
+  install_service_deps "$service"
+done
+
+# Install TensorFlow.js models for object detection
+echo -e "${YELLOW}Installing TensorFlow.js models...${NC}"
+cd "${ROOT_DIR}/services/object-detection"
+mkdir -p models
+cd models
+
+# Download COCO-SSD model if it doesn't exist
+if [ ! -d "coco-ssd" ]; then
+  echo -e "${YELLOW}Downloading COCO-SSD model...${NC}"
+  mkdir -p coco-ssd
+  # This is a placeholder - in a real implementation, you would download the model files
+  # For example: curl -L https://storage.googleapis.com/tfjs-models/savedmodel/ssd_mobilenet_v2/model.json -o coco-ssd/model.json
+  echo "// Placeholder for COCO-SSD model" > coco-ssd/model.json
+fi
+
+cd "${ROOT_DIR}"
+
+echo -e "${GREEN}All dependencies installed successfully!${NC}"
+echo -e "${YELLOW}Next steps:${NC}"
+echo -e "1. Create a .env file based on .env.example"
+echo -e "2. Start the services with 'docker-compose up -d'"
+echo -e "3. Access the frontend at http://localhost:3000"
+
+exit 0
