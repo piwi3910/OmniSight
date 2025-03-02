@@ -1,96 +1,120 @@
 import { Request, Response } from 'express';
-import { triggerRetentionTasks } from '../utils/retentionManager';
+import { retentionService } from '../services/retentionService';
 import logger from '../utils/logger';
 
 /**
- * Trigger retention tasks manually
- * 
- * @route POST /api/retention/trigger
+ * Run a manual retention cleanup
  */
-export const triggerRetention = async (req: Request, res: Response): Promise<void> => {
+export const runRetentionCleanup = async (req: Request, res: Response) => {
   try {
-    logger.info('Manual retention task triggered');
+    await retentionService.runCleanup();
     
-    // Trigger retention tasks
-    await triggerRetentionTasks();
-    
-    res.status(200).json({ message: 'Retention tasks triggered successfully' });
+    return res.status(200).json({
+      success: true,
+      message: 'Retention cleanup triggered successfully'
+    });
   } catch (error) {
-    logger.error('Error triggering retention tasks:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    logger.error('Error in runRetentionCleanup controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to run retention cleanup',
+      error: (error as Error).message
+    });
   }
 };
 
 /**
- * Get retention settings
- * 
- * @route GET /api/retention/settings
+ * Get current retention configuration
  */
-export const getRetentionSettings = (req: Request, res: Response): void => {
+export const getRetentionConfig = async (req: Request, res: Response) => {
   try {
-    // Get retention settings from environment variables
-    const settings = {
-      eventRetentionDays: parseInt(process.env.EVENT_RETENTION_DAYS || '30', 10),
-      recordingRetentionDays: parseInt(process.env.RECORDING_RETENTION_DAYS || '30', 10),
-      storageLimitGB: parseInt(process.env.STORAGE_LIMIT_GB || '500', 10)
-    };
+    const config = retentionService.getConfig();
     
-    res.status(200).json(settings);
+    return res.status(200).json({
+      success: true,
+      data: config
+    });
   } catch (error) {
-    logger.error('Error getting retention settings:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    logger.error('Error in getRetentionConfig controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to get retention configuration',
+      error: (error as Error).message
+    });
   }
 };
 
 /**
- * Update retention settings
- * 
- * @route PUT /api/retention/settings
+ * Update retention configuration
  */
-export const updateRetentionSettings = (req: Request, res: Response): void => {
+export const updateRetentionConfig = async (req: Request, res: Response) => {
   try {
-    const { eventRetentionDays, recordingRetentionDays, storageLimitGB } = req.body;
+    const newConfig = req.body;
     
-    // Validate settings
-    if (eventRetentionDays !== undefined && (isNaN(eventRetentionDays) || eventRetentionDays < 1)) {
-      res.status(400).json({ error: 'Event retention days must be a positive number' });
-      return;
+    // Validate config
+    if (!newConfig || typeof newConfig !== 'object') {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid configuration format'
+      });
     }
     
-    if (recordingRetentionDays !== undefined && (isNaN(recordingRetentionDays) || recordingRetentionDays < 1)) {
-      res.status(400).json({ error: 'Recording retention days must be a positive number' });
-      return;
-    }
+    // Update config
+    retentionService.updateConfig(newConfig);
     
-    if (storageLimitGB !== undefined && (isNaN(storageLimitGB) || storageLimitGB < 1)) {
-      res.status(400).json({ error: 'Storage limit must be a positive number' });
-      return;
-    }
-    
-    // Update environment variables
-    if (eventRetentionDays !== undefined) {
-      process.env.EVENT_RETENTION_DAYS = eventRetentionDays.toString();
-    }
-    
-    if (recordingRetentionDays !== undefined) {
-      process.env.RECORDING_RETENTION_DAYS = recordingRetentionDays.toString();
-    }
-    
-    if (storageLimitGB !== undefined) {
-      process.env.STORAGE_LIMIT_GB = storageLimitGB.toString();
-    }
-    
-    // Return updated settings
-    const updatedSettings = {
-      eventRetentionDays: parseInt(process.env.EVENT_RETENTION_DAYS || '30', 10),
-      recordingRetentionDays: parseInt(process.env.RECORDING_RETENTION_DAYS || '30', 10),
-      storageLimitGB: parseInt(process.env.STORAGE_LIMIT_GB || '500', 10)
-    };
-    
-    logger.info('Retention settings updated:', updatedSettings);
-    res.status(200).json(updatedSettings);
+    return res.status(200).json({
+      success: true,
+      message: 'Retention configuration updated successfully',
+      data: retentionService.getConfig()
+    });
   } catch (error) {
-    logger.error('Error updating retention settings:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    logger.error('Error in updateRetentionConfig controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update retention configuration',
+      error: (error as Error).message
+    });
+  }
+};
+
+/**
+ * Stop the retention service
+ */
+export const stopRetentionService = async (req: Request, res: Response) => {
+  try {
+    retentionService.stop();
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Retention service stopped successfully'
+    });
+  } catch (error) {
+    logger.error('Error in stopRetentionService controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to stop retention service',
+      error: (error as Error).message
+    });
+  }
+};
+
+/**
+ * Start the retention service
+ */
+export const startRetentionService = async (req: Request, res: Response) => {
+  try {
+    retentionService.start();
+    
+    return res.status(200).json({
+      success: true,
+      message: 'Retention service started successfully'
+    });
+  } catch (error) {
+    logger.error('Error in startRetentionService controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to start retention service',
+      error: (error as Error).message
+    });
   }
 };

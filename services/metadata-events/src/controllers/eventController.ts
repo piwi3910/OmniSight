@@ -1,8 +1,6 @@
 import { Request, Response } from 'express';
-import models from '../models';
-import { Op } from 'sequelize';
-
-const { Event, DetectedObject, Recording, Camera, Segment } = models;
+import { eventService, EventWithRelations } from '../services/eventService';
+import logger from '../utils/logger';
 
 /**
  * Get all events with pagination and filtering
@@ -18,110 +16,48 @@ export const getAllEvents = async (req: Request, res: Response) => {
       page = 1,
       limit = 10
     } = req.query;
-
-    // Build where clause based on query parameters
-    const whereClause: any = {};
     
-    if (recordingId) {
-      whereClause.recordingId = recordingId;
-    }
-    
-    if (type) {
-      whereClause.type = type;
-    }
-    
-    // If cameraId is provided, we need to find recordings for that camera
-    if (cameraId) {
-      const recordings = await Recording.findAll({
-        where: { cameraId: cameraId.toString() },
-        attributes: ['id']
-      });
-      
-      const recordingIds = recordings.map((recording: any) => recording.id);
-      whereClause.recordingId = { [Op.in]: recordingIds };
-    }
-    
-    // Add time range filter if provided
-    if (startTime || endTime) {
-      whereClause.timestamp = {};
-      
-      if (startTime) {
-        whereClause.timestamp[Op.gte] = new Date(startTime as string);
-      }
-      
-      if (endTime) {
-        whereClause.timestamp[Op.lte] = new Date(endTime as string);
-      }
-    }
-    
-    // Calculate pagination
-    const offset = (Number(page) - 1) * Number(limit);
-    
-    // Get events with pagination
-    const { count, rows } = await Event.findAndCountAll({
-      where: whereClause,
-      include: [
-        {
-          model: DetectedObject,
-          as: 'detectedObjects'
-        },
-        {
-          model: Recording,
-          as: 'recording',
-          include: [
-            {
-              model: Camera,
-              as: 'camera',
-              attributes: ['id', 'name', 'location']
-            }
-          ]
-        },
-        {
-          model: Segment,
-          as: 'segment',
-          attributes: ['id', 'filePath', 'startTime', 'endTime']
-        }
-      ],
-      order: [['timestamp', 'DESC']],
-      limit: Number(limit),
-      offset
+    // Call service method with parsed parameters
+    const { events, total, pages } = await eventService.getAllEvents({
+      cameraId: cameraId as string,
+      recordingId: recordingId as string,
+      eventType: type as string,
+      startTime: startTime ? new Date(startTime as string) : undefined,
+      endTime: endTime ? new Date(endTime as string) : undefined,
+      page: Number(page),
+      limit: Number(limit)
     });
     
-    // Format response
-    const events = rows.map((event: any) => ({
+    // Format response to maintain API compatibility
+    const formattedEvents = events.map((event: EventWithRelations) => ({
       id: event.id,
       timestamp: event.timestamp,
-      type: event.type,
+      type: event.eventType,
       confidence: event.confidence,
       thumbnailPath: event.thumbnailPath,
       cameraId: event.recording?.camera?.id,
       cameraName: event.recording?.camera?.name,
       recordingId: event.recordingId,
-      segmentId: event.segmentId,
-      segmentPath: event.segment?.filePath,
-      detectedObjects: event.detectedObjects?.map((obj: any) => ({
+      detectedObjects: event.detectedObjects?.map((obj) => ({
         id: obj.id,
-        type: obj.type,
+        type: obj.objectType,
         confidence: obj.confidence,
         boundingBox: obj.boundingBox
       })),
       createdAt: event.createdAt
     }));
     
-    // Calculate total pages
-    const totalPages = Math.ceil(count / Number(limit));
-    
     return res.status(200).json({
-      events,
+      events: formattedEvents,
       pagination: {
-        total: count,
+        total,
         page: Number(page),
         limit: Number(limit),
-        pages: totalPages
+        pages
       }
     });
   } catch (error) {
-    console.error('Error getting events:', error);
+    logger.error('Error getting events:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -133,62 +69,33 @@ export const getEventById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     
-    const event = await Event.findByPk(id, {
-      include: [
-        {
-          model: DetectedObject,
-          as: 'detectedObjects'
-        },
-        {
-          model: Recording,
-          as: 'recording',
-          include: [
-            {
-              model: Camera,
-              as: 'camera',
-              attributes: ['id', 'name', 'location']
-            }
-          ]
-        },
-        {
-          model: Segment,
-          as: 'segment',
-          attributes: ['id', 'filePath', 'startTime', 'endTime']
-        }
-      ]
-    });
+    const event = await eventService.getEventById(id);
     
     if (!event) {
       return res.status(404).json({ error: 'Event not found' });
     }
     
-    // Format response
+    // Format response to maintain API compatibility
     const formattedEvent = {
       id: event.id,
       timestamp: event.timestamp,
-      type: event.type,
+      type: event.eventType,
       confidence: event.confidence,
       thumbnailPath: event.thumbnailPath,
       metadata: event.metadata,
       camera: {
-        id: (event as any).recording?.camera?.id,
-        name: (event as any).recording?.camera?.name,
-        location: (event as any).recording?.camera?.location
+        id: event.recording?.camera?.id,
+        name: event.recording?.camera?.name,
+        location: event.recording?.camera?.location
       },
       recording: {
         id: event.recordingId,
-        startTime: (event as any).recording?.startTime,
-        endTime: (event as any).recording?.endTime
+        startTime: event.recording?.startTime,
+        endTime: event.recording?.endTime
       },
-      segment: (event as any).segment ? {
-        id: event.segmentId,
-        filePath: (event as any).segment.filePath,
-        startTime: (event as any).segment.startTime,
-        endTime: (event as any).segment.endTime
-      } : null,
-      detectedObjects: (event as any).detectedObjects?.map((obj: any) => ({
+      detectedObjects: event.detectedObjects?.map((obj) => ({
         id: obj.id,
-        type: obj.type,
+        type: obj.objectType,
         confidence: obj.confidence,
         boundingBox: obj.boundingBox
       })),
@@ -198,7 +105,7 @@ export const getEventById = async (req: Request, res: Response) => {
     
     return res.status(200).json(formattedEvent);
   } catch (error) {
-    console.error('Error getting event:', error);
+    logger.error('Error getting event:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -213,7 +120,6 @@ export const createEvent = async (req: Request, res: Response) => {
       timestamp,
       type,
       confidence,
-      segmentId,
       thumbnailPath,
       metadata,
       detectedObjects
@@ -224,51 +130,45 @@ export const createEvent = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'recordingId, timestamp, and type are required' });
     }
     
-    // Check if recording exists
-    const recording = await Recording.findByPk(recordingId);
-    if (!recording) {
-      return res.status(404).json({ error: 'Recording not found' });
-    }
+    // Convert detected objects to the format expected by the service
+    const formattedDetectedObjects = detectedObjects?.map((obj: any) => ({
+      objectType: obj.type,
+      confidence: obj.confidence,
+      boundingBox: obj.boundingBox,
+      metadata: obj.metadata
+    }));
     
-    // Create event
-    const event = await Event.create({
+    // Call service to create event
+    const event = await eventService.createEvent({
       recordingId,
-      timestamp,
-      type,
-      confidence,
-      segmentId,
+      timestamp: new Date(timestamp),
+      eventType: type,
+      confidence: confidence || 0,
       thumbnailPath,
-      metadata
+      metadata,
+      detectedObjects: formattedDetectedObjects
     });
     
-    // Create detected objects if provided
-    if (detectedObjects && Array.isArray(detectedObjects)) {
-      await Promise.all(
-        detectedObjects.map((obj: any) =>
-          DetectedObject.create({
-            eventId: event.id,
-            type: obj.type,
-            confidence: obj.confidence,
-            boundingBox: obj.boundingBox,
-            metadata: obj.metadata
-          })
-        )
-      );
-    }
+    // Format response
+    const formattedEvent = {
+      id: event.id,
+      timestamp: event.timestamp,
+      type: event.eventType,
+      confidence: event.confidence,
+      thumbnailPath: event.thumbnailPath,
+      recordingId: event.recordingId,
+      detectedObjects: event.detectedObjects?.map((obj) => ({
+        id: obj.id,
+        type: obj.objectType,
+        confidence: obj.confidence,
+        boundingBox: obj.boundingBox
+      })),
+      createdAt: event.createdAt
+    };
     
-    // Get the created event with its detected objects
-    const createdEvent = await Event.findByPk(event.id, {
-      include: [
-        {
-          model: DetectedObject,
-          as: 'detectedObjects'
-        }
-      ]
-    });
-    
-    return res.status(201).json(createdEvent);
+    return res.status(201).json(formattedEvent);
   } catch (error) {
-    console.error('Error creating event:', error);
+    logger.error('Error creating event:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -282,39 +182,47 @@ export const updateEvent = async (req: Request, res: Response) => {
     const {
       type,
       confidence,
-      segmentId,
       thumbnailPath,
       metadata
     } = req.body;
     
-    // Find the event
-    const event = await Event.findByPk(id);
-    if (!event) {
-      return res.status(404).json({ error: 'Event not found' });
-    }
-    
-    // Update event
-    await event.update({
-      type,
+    // Call service to update event
+    const event = await eventService.updateEvent(id, {
+      eventType: type,
       confidence,
-      segmentId,
       thumbnailPath,
       metadata
     });
     
-    // Get the updated event
-    const updatedEvent = await Event.findByPk(id, {
-      include: [
-        {
-          model: DetectedObject,
-          as: 'detectedObjects'
-        }
-      ]
-    });
+    // Get the updated event with detected objects
+    const updatedEvent = await eventService.getEventById(id);
     
-    return res.status(200).json(updatedEvent);
+    if (!updatedEvent) {
+      return res.status(404).json({ error: 'Event not found after update' });
+    }
+    
+    // Format response
+    const formattedEvent = {
+      id: updatedEvent.id,
+      timestamp: updatedEvent.timestamp,
+      type: updatedEvent.eventType,
+      confidence: updatedEvent.confidence,
+      thumbnailPath: updatedEvent.thumbnailPath,
+      metadata: updatedEvent.metadata,
+      recordingId: updatedEvent.recordingId,
+      detectedObjects: updatedEvent.detectedObjects?.map((obj) => ({
+        id: obj.id,
+        type: obj.objectType,
+        confidence: obj.confidence,
+        boundingBox: obj.boundingBox
+      })),
+      createdAt: updatedEvent.createdAt,
+      updatedAt: updatedEvent.updatedAt
+    };
+    
+    return res.status(200).json(formattedEvent);
   } catch (error) {
-    console.error('Error updating event:', error);
+    logger.error('Error updating event:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -326,18 +234,12 @@ export const deleteEvent = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     
-    // Find the event
-    const event = await Event.findByPk(id);
-    if (!event) {
-      return res.status(404).json({ error: 'Event not found' });
-    }
-    
-    // Delete event (this will cascade delete detected objects due to foreign key constraints)
-    await event.destroy();
+    // Call service to delete event
+    await eventService.deleteEvent(id);
     
     return res.status(200).json({ message: 'Event deleted successfully' });
   } catch (error) {
-    console.error('Error deleting event:', error);
+    logger.error('Error deleting event:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -356,102 +258,48 @@ export const getEventsByCamera = async (req: Request, res: Response) => {
       limit = 10
     } = req.query;
     
-    // Check if camera exists
-    const camera = await Camera.findByPk(cameraId);
-    if (!camera) {
-      return res.status(404).json({ error: 'Camera not found' });
-    }
-    
-    // Find recordings for this camera
-    const recordings = await Recording.findAll({
-      where: { cameraId },
-      attributes: ['id']
-    });
-    
-    const recordingIds = recordings.map((recording: any) => recording.id);
-    
-    // Build where clause
-    const whereClause: any = {
-      recordingId: { [Op.in]: recordingIds }
-    };
-    
-    if (type) {
-      whereClause.type = type;
-    }
-    
-    // Add time range filter if provided
-    if (startTime || endTime) {
-      whereClause.timestamp = {};
-      
-      if (startTime) {
-        whereClause.timestamp[Op.gte] = new Date(startTime as string);
-      }
-      
-      if (endTime) {
-        whereClause.timestamp[Op.lte] = new Date(endTime as string);
-      }
-    }
-    
-    // Calculate pagination
-    const offset = (Number(page) - 1) * Number(limit);
-    
-    // Get events with pagination
-    const { count, rows } = await Event.findAndCountAll({
-      where: whereClause,
-      include: [
-        {
-          model: DetectedObject,
-          as: 'detectedObjects'
-        },
-        {
-          model: Segment,
-          as: 'segment',
-          attributes: ['id', 'filePath']
-        }
-      ],
-      order: [['timestamp', 'DESC']],
-      limit: Number(limit),
-      offset
+    // Call service to get events by camera
+    const { events, camera, total, pages } = await eventService.getEventsByCamera(cameraId, {
+      eventType: type as string,
+      startTime: startTime ? new Date(startTime as string) : undefined,
+      endTime: endTime ? new Date(endTime as string) : undefined,
+      page: Number(page),
+      limit: Number(limit)
     });
     
     // Format response
-    const events = rows.map((event: any) => ({
+    const formattedEvents = events.map((event) => ({
       id: event.id,
       timestamp: event.timestamp,
-      type: event.type,
+      type: event.eventType,
       confidence: event.confidence,
       thumbnailPath: event.thumbnailPath,
       recordingId: event.recordingId,
-      segmentId: event.segmentId,
-      segmentPath: event.segment?.filePath,
-      detectedObjects: event.detectedObjects?.map((obj: any) => ({
+      detectedObjects: event.detectedObjects?.map((obj) => ({
         id: obj.id,
-        type: obj.type,
+        type: obj.objectType,
         confidence: obj.confidence,
         boundingBox: obj.boundingBox
       })),
       createdAt: event.createdAt
     }));
     
-    // Calculate total pages
-    const totalPages = Math.ceil(count / Number(limit));
-    
     return res.status(200).json({
-      events,
+      events: formattedEvents,
       camera: {
         id: camera.id,
         name: camera.name,
         location: camera.location
       },
       pagination: {
-        total: count,
+        total,
         page: Number(page),
         limit: Number(limit),
-        pages: totalPages
+        pages
       }
     });
   } catch (error) {
-    console.error('Error getting events by camera:', error);
+    logger.error('Error getting events by camera:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -468,91 +316,47 @@ export const getEventsByRecording = async (req: Request, res: Response) => {
       limit = 10
     } = req.query;
     
-    // Check if recording exists
-    const recording = await Recording.findByPk(recordingId, {
-      include: [
-        {
-          model: Camera,
-          as: 'camera',
-          attributes: ['id', 'name', 'location']
-        }
-      ]
-    });
-    
-    if (!recording) {
-      return res.status(404).json({ error: 'Recording not found' });
-    }
-    
-    // Build where clause
-    const whereClause: any = {
-      recordingId
-    };
-    
-    if (type) {
-      whereClause.type = type;
-    }
-    
-    // Calculate pagination
-    const offset = (Number(page) - 1) * Number(limit);
-    
-    // Get events with pagination
-    const { count, rows } = await Event.findAndCountAll({
-      where: whereClause,
-      include: [
-        {
-          model: DetectedObject,
-          as: 'detectedObjects'
-        },
-        {
-          model: Segment,
-          as: 'segment',
-          attributes: ['id', 'filePath', 'startTime', 'endTime']
-        }
-      ],
-      order: [['timestamp', 'ASC']],
-      limit: Number(limit),
-      offset
+    // Call service to get events by recording
+    const { events, recording, total, pages } = await eventService.getEventsByRecording(recordingId, {
+      eventType: type as string,
+      page: Number(page),
+      limit: Number(limit)
     });
     
     // Format response
-    const events = rows.map((event: any) => ({
+    const formattedEvents = events.map((event) => ({
       id: event.id,
       timestamp: event.timestamp,
-      type: event.type,
+      type: event.eventType,
       confidence: event.confidence,
       thumbnailPath: event.thumbnailPath,
-      segmentId: event.segmentId,
-      segmentPath: event.segment?.filePath,
-      detectedObjects: event.detectedObjects?.map((obj: any) => ({
+      detectedObjects: event.detectedObjects?.map((obj) => ({
         id: obj.id,
-        type: obj.type,
+        type: obj.objectType,
         confidence: obj.confidence,
         boundingBox: obj.boundingBox
       })),
       createdAt: event.createdAt
     }));
     
-    // Calculate total pages
-    const totalPages = Math.ceil(count / Number(limit));
-    
     return res.status(200).json({
-      events,
+      events: formattedEvents,
       recording: {
         id: recording.id,
         startTime: recording.startTime,
         endTime: recording.endTime,
         duration: recording.duration,
-        camera: (recording as any).camera
+        camera: recording.camera
       },
       pagination: {
-        total: count,
+        total,
         page: Number(page),
         limit: Number(limit),
-        pages: totalPages
+        pages
       }
     });
   } catch (error) {
-    console.error('Error getting events by recording:', error);
+    logger.error('Error getting events by recording:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 };

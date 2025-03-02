@@ -1,8 +1,9 @@
 import { Sequelize } from 'sequelize';
 import dotenv from 'dotenv';
+import path from 'path';
 
 // Load environment variables
-dotenv.config();
+dotenv.config({ path: path.resolve(process.cwd(), '../../.env.local') });
 
 // Database configuration
 const dbName = process.env.DB_NAME || 'omnisight';

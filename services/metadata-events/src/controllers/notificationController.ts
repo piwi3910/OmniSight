@@ -1,132 +1,150 @@
 import { Request, Response } from 'express';
-import { 
-  getRecentNotifications, 
-  markNotificationAsRead, 
-  sendSystemNotification,
-  sendEventNotification,
-  sendCameraStatusNotification
-} from '../utils/notificationManager';
+import { notificationService } from '../services/notificationService';
 import logger from '../utils/logger';
 
 /**
- * Get all recent notifications
- * 
- * @route GET /api/notifications
+ * Get notifications for a user
  */
-export const getNotifications = (req: Request, res: Response): void => {
+export const getUserNotifications = async (req: Request, res: Response) => {
   try {
-    const notifications = getRecentNotifications();
+    const userId = req.params.userId;
+    const unreadOnly = req.query.unreadOnly === 'true';
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
+    const offset = req.query.offset ? parseInt(req.query.offset as string) : 0;
     
-    res.status(200).json({
-      count: notifications.length,
-      notifications
+    const notifications = await notificationService.getNotificationsByUser(userId, {
+      unreadOnly,
+      limit,
+      offset
+    });
+    
+    return res.status(200).json({
+      success: true,
+      data: notifications
     });
   } catch (error) {
-    logger.error('Error getting notifications:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    logger.error('Error in getUserNotifications controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to retrieve notifications',
+      error: (error as Error).message
+    });
   }
 };
 
 /**
  * Mark a notification as read
- * 
- * @route PUT /api/notifications/:id/read
  */
-export const markAsRead = (req: Request, res: Response): void => {
+export const markNotificationAsRead = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
+    const notificationId = req.params.notificationId;
     
-    const success = markNotificationAsRead(id);
+    const updatedNotification = await notificationService.markNotificationAsRead(notificationId);
     
-    if (!success) {
-      res.status(404).json({ error: 'Notification not found' });
-      return;
-    }
-    
-    res.status(200).json({ message: 'Notification marked as read' });
+    return res.status(200).json({
+      success: true,
+      data: updatedNotification
+    });
   } catch (error) {
-    logger.error(`Error marking notification ${req.params.id} as read:`, error);
-    res.status(500).json({ error: 'Internal server error' });
+    logger.error('Error in markNotificationAsRead controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to mark notification as read',
+      error: (error as Error).message
+    });
   }
 };
 
 /**
- * Send a system notification
- * 
- * @route POST /api/notifications/system
+ * Delete a notification
  */
-export const createSystemNotification = (req: Request, res: Response): void => {
+export const deleteNotification = async (req: Request, res: Response) => {
   try {
-    const { title, message, level, metadata } = req.body;
+    const notificationId = req.params.notificationId;
     
-    // Validate request
+    const result = await notificationService.deleteNotification(notificationId);
+    
+    if (result) {
+      return res.status(200).json({
+        success: true,
+        message: 'Notification deleted successfully'
+      });
+    } else {
+      return res.status(404).json({
+        success: false,
+        message: 'Notification not found'
+      });
+    }
+  } catch (error) {
+    logger.error('Error in deleteNotification controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to delete notification',
+      error: (error as Error).message
+    });
+  }
+};
+
+/**
+ * Send a test notification
+ */
+export const sendTestNotification = async (req: Request, res: Response) => {
+  try {
+    const { userId, title, message, type } = req.body;
+    
     if (!title || !message) {
-      res.status(400).json({ error: 'Title and message are required' });
-      return;
+      return res.status(400).json({
+        success: false,
+        message: 'Title and message are required'
+      });
     }
     
-    // Send notification
-    sendSystemNotification(title, message, level, metadata);
+    const notification = await notificationService.createNotification({
+      userId,
+      title,
+      message,
+      type: type || 'test_notification',
+      metadata: {
+        test: true,
+        timestamp: new Date()
+      }
+    });
     
-    res.status(201).json({ message: 'System notification sent' });
+    return res.status(201).json({
+      success: true,
+      data: notification,
+      message: 'Test notification sent successfully'
+    });
   } catch (error) {
-    logger.error('Error creating system notification:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    logger.error('Error in sendTestNotification controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to send test notification',
+      error: (error as Error).message
+    });
   }
 };
 
 /**
- * Send an event notification
- * 
- * @route POST /api/notifications/event
+ * Create a notification for an event
  */
-export const createEventNotification = (req: Request, res: Response): void => {
+export const createEventNotification = async (req: Request, res: Response) => {
   try {
-    const { cameraId, cameraName, eventType, eventId, thumbnailPath } = req.body;
+    const eventId = req.params.eventId;
     
-    // Validate request
-    if (!cameraId || !cameraName || !eventType || !eventId) {
-      res.status(400).json({ error: 'CameraId, cameraName, eventType, and eventId are required' });
-      return;
-    }
+    const notification = await notificationService.createEventNotification(eventId);
     
-    // Send notification
-    sendEventNotification(cameraId, cameraName, eventType, eventId, thumbnailPath);
-    
-    res.status(201).json({ message: 'Event notification sent' });
+    return res.status(201).json({
+      success: true,
+      data: notification,
+      message: 'Event notification created successfully'
+    });
   } catch (error) {
-    logger.error('Error creating event notification:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-/**
- * Send a camera status notification
- * 
- * @route POST /api/notifications/camera
- */
-export const createCameraStatusNotification = (req: Request, res: Response): void => {
-  try {
-    const { cameraId, cameraName, status, message } = req.body;
-    
-    // Validate request
-    if (!cameraId || !cameraName || !status) {
-      res.status(400).json({ error: 'CameraId, cameraName, and status are required' });
-      return;
-    }
-    
-    // Validate status
-    if (!['online', 'offline', 'error'].includes(status)) {
-      res.status(400).json({ error: 'Status must be one of: online, offline, error' });
-      return;
-    }
-    
-    // Send notification
-    sendCameraStatusNotification(cameraId, cameraName, status, message);
-    
-    res.status(201).json({ message: 'Camera status notification sent' });
-  } catch (error) {
-    logger.error('Error creating camera status notification:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    logger.error('Error in createEventNotification controller:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to create event notification',
+      error: (error as Error).message
+    });
   }
 };
