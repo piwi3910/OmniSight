@@ -1,0 +1,133 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Camera {
+  id        String       @id
+  name      String
+  rtspUrl   String
+  username  String?
+  password  String?
+  status    CameraStatus @default(OFFLINE)
+  ipAddress String?
+  model     String?
+  location  String?
+  settings  Json?        @default("{}")
+  createdAt DateTime     @default(now())
+  updatedAt DateTime
+  Recording Recording[]
+  Stream    Stream[]
+}
+
+model DetectedObject {
+  id          String   @id
+  eventId     String
+  objectType  String
+  confidence  Float
+  boundingBox Json
+  metadata    Json?    @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime
+  Event       Event    @relation(fields: [eventId], references: [id])
+}
+
+model Event {
+  id             String           @id
+  recordingId    String
+  timestamp      DateTime
+  eventType      String
+  confidence     Float
+  metadata       Json?            @default("{}")
+  thumbnailPath  String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime
+  DetectedObject DetectedObject[]
+  Recording      Recording        @relation(fields: [recordingId], references: [id])
+}
+
+model Recording {
+  id        String          @id
+  cameraId  String
+  startTime DateTime
+  endTime   DateTime?
+  duration  Int?
+  status    RecordingStatus @default(RECORDING)
+  metadata  Json?           @default("{}")
+  createdAt DateTime        @default(now())
+  updatedAt DateTime
+  Event     Event[]
+  Camera    Camera          @relation(fields: [cameraId], references: [id])
+  Segment   Segment[]
+}
+
+model Segment {
+  id            String     @id
+  streamId      String?
+  recordingId   String?
+  startTime     DateTime
+  endTime       DateTime?
+  duration      Int?
+  filePath      String
+  fileSize      Int?
+  metadata      Json?      @default("{}")
+  thumbnailPath String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime
+  Recording     Recording? @relation(fields: [recordingId], references: [id])
+  Stream        Stream?    @relation(fields: [streamId], references: [id])
+}
+
+model Stream {
+  id        String       @id
+  cameraId  String
+  status    StreamStatus @default(INACTIVE)
+  startedAt DateTime?
+  endedAt   DateTime?
+  metadata  Json?        @default("{}")
+  createdAt DateTime     @default(now())
+  updatedAt DateTime
+  Segment   Segment[]
+  Camera    Camera       @relation(fields: [cameraId], references: [id])
+}
+
+model User {
+  id        String    @id
+  username  String    @unique
+  email     String    @unique
+  password  String
+  role      UserRole  @default(USER)
+  isActive  Boolean   @default(true)
+  lastLogin DateTime?
+  settings  Json?     @default("{}")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime
+}
+
+enum CameraStatus {
+  ONLINE
+  OFFLINE
+  ERROR
+}
+
+enum RecordingStatus {
+  RECORDING
+  COMPLETED
+  ERROR
+}
+
+enum StreamStatus {
+  ACTIVE
+  INACTIVE
+  ERROR
+}
+
+enum UserRole {
+  ADMIN
+  USER
+  VIEWER
+}
