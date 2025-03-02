@@ -8,6 +8,10 @@ import { Server as SocketIOServer } from 'socket.io';
 import http from 'http';
 import path from 'path';
 import fs from 'fs';
+import sequelize, { testConnection } from './config/database';
+
+// Import routes
+import eventRoutes from './routes/eventRoutes';
 
 // Load environment variables
 dotenv.config();
@@ -62,34 +66,7 @@ app.get('/health', (req, res) => {
 });
 
 // API routes
-app.get('/api/events', (req, res) => {
-  res.status(200).json({ message: 'Events list endpoint (to be implemented)' });
-});
-
-app.get('/api/events/:id', (req, res) => {
-  res.status(200).json({ message: 'Get event details endpoint (to be implemented)' });
-});
-
-app.get('/api/cameras/:id/events', (req, res) => {
-  res.status(200).json({ message: 'Get camera events endpoint (to be implemented)' });
-});
-
-app.get('/api/recordings/:id/events', (req, res) => {
-  res.status(200).json({ message: 'Get recording events endpoint (to be implemented)' });
-});
-
-app.post('/api/events', (req, res) => {
-  // Create a new event
-  const event = req.body;
-  
-  // In a real implementation, we would save to database
-  logger.info(`New event received: ${JSON.stringify(event)}`);
-  
-  // Emit event to connected clients
-  io.emit('event', event);
-  
-  res.status(201).json({ message: 'Event created (to be implemented)' });
-});
+app.use('/api/events', eventRoutes);
 
 // WebSocket setup
 io.on('connection', (socket) => {
@@ -121,10 +98,27 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
 });
 
 // Start server
-server.listen(port, () => {
-  logger.info(`Metadata & Events Service running on port ${port}`);
-  logger.info(`Thumbnails will be stored in: ${thumbnailsPath}`);
-});
+const startServer = async () => {
+  try {
+    // Test database connection
+    await testConnection();
+    
+    // Sync database models (in development only)
+    if (process.env.NODE_ENV === 'development') {
+      await sequelize.sync({ alter: true });
+      logger.info('Database synced');
+    }
+    
+    // Start server
+    server.listen(port, () => {
+      logger.info(`Metadata & Events Service running on port ${port}`);
+      logger.info(`Thumbnails will be stored in: ${thumbnailsPath}`);
+    });
+  } catch (error) {
+    logger.error('Failed to start server:', error);
+    process.exit(1);
+  }
+};
 
 // Handle graceful shutdown
 process.on('SIGTERM', () => {
@@ -138,8 +132,16 @@ process.on('SIGTERM', () => {
   // Close HTTP server
   server.close(() => {
     logger.info('HTTP server closed');
-    process.exit(0);
+    
+    // Close database connection
+    sequelize.close().then(() => {
+      logger.info('Database connection closed');
+      process.exit(0);
+    });
   });
 });
+
+// Start the server
+startServer();
 
 export default app;
