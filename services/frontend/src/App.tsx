@@ -6,6 +6,8 @@ import Layout from './components/Layout';
 import Dashboard from './pages/Dashboard';
 import Cameras from './pages/Cameras';
 import Recordings from './pages/Recordings';
+import RecordingPlayer from './pages/RecordingPlayer';
+import LiveView from './pages/LiveView';
 import Events from './pages/Events';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
@@ -58,7 +60,9 @@ function App() {
           }>
             <Route index element={<Dashboard />} />
             <Route path="cameras" element={<Cameras />} />
+            <Route path="live/:cameraId" element={<LiveView />} />
             <Route path="recordings" element={<Recordings />} />
+            <Route path="recordings/:recordingId" element={<RecordingPlayer />} />
             <Route path="events" element={<Events />} />
             <Route path="settings" element={<Settings />} />
           </Route>

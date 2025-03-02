@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import axios from 'axios';
 import {
   Box,
   Typography,
@@ -26,7 +27,9 @@ import {
   Card,
   CardMedia,
   CardContent,
-  Grid
+  Grid,
+  SelectChangeEvent,
+  Alert
 } from '@mui/material';
 import {
   Visibility as VisibilityIcon,
@@ -51,48 +54,120 @@ const mockEvents = [
 ];
 
 const Events: React.FC = () => {
-  const [events, setEvents] = useState(mockEvents);
+  // State
+  const [events, setEvents] = useState<any[]>([]);
+  const [cameras, setCameras] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(5);
+  const [rowsPerPage, setRowsPerPage] = useState(8);
+  const [totalCount, setTotalCount] = useState(0);
   const [openFilterDialog, setOpenFilterDialog] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
   const [openEventDialog, setOpenEventDialog] = useState(false);
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('grid');
+  
+  // Filter state
+  const [filters, setFilters] = useState({
+    eventType: 'all',
+    cameraId: 'all',
+    startDate: '',
+    endDate: '',
+    minConfidence: '0'
+  });
+  
   const { token } = useAuth();
   
   // API URL from environment variable
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1';
 
-  // In a real implementation, we would fetch data from the API
+  // Fetch cameras for filter dropdown
   useEffect(() => {
-    const fetchEvents = async () => {
+    const fetchCameras = async () => {
       if (!token) return;
       
-      setLoading(true);
-      
       try {
-        // This would be a real API call in production
-        /*
-        const response = await axios.get(`${API_URL}/events`, {
+        const response = await axios.get(`${API_URL}/cameras`, {
           headers: { Authorization: `Bearer ${token}` }
         });
         
-        setEvents(response.data.events);
-        */
-        
-        // Simulate API delay
-        setTimeout(() => {
-          setLoading(false);
-        }, 500);
+        setCameras(response.data.cameras || []);
       } catch (error) {
-        console.error('Error fetching events:', error);
-        setLoading(false);
+        console.error('Error fetching cameras:', error);
+        // Use mock data in development
+        if (process.env.NODE_ENV === 'development') {
+          setCameras([
+            { id: '1', name: 'Front Door' },
+            { id: '2', name: 'Backyard' },
+            { id: '3', name: 'Garage' },
+            { id: '4', name: 'Living Room' }
+          ]);
+        }
       }
     };
     
-    fetchEvents();
+    fetchCameras();
   }, [token, API_URL]);
+  
+  // Fetch events with filters
+  const fetchEvents = useCallback(async () => {
+    if (!token) return;
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Build query parameters
+      const params: any = {
+        page: page + 1, // API uses 1-based indexing
+        limit: rowsPerPage
+      };
+      
+      if (filters.eventType !== 'all') {
+        params.type = filters.eventType;
+      }
+      
+      if (filters.cameraId !== 'all') {
+        params.cameraId = filters.cameraId;
+      }
+      
+      if (filters.startDate) {
+        params.startDate = new Date(filters.startDate).toISOString();
+      }
+      
+      if (filters.endDate) {
+        params.endDate = new Date(filters.endDate).toISOString();
+      }
+      
+      if (parseFloat(filters.minConfidence) > 0) {
+        params.minConfidence = parseFloat(filters.minConfidence);
+      }
+      
+      const response = await axios.get(`${API_URL}/events`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params
+      });
+      
+      setEvents(response.data.events || []);
+      setTotalCount(response.data.totalCount || response.data.events?.length || 0);
+    } catch (error) {
+      console.error('Error fetching events:', error);
+      setError('Failed to load events. Please try again.');
+      
+      // Use mock data in development
+      if (process.env.NODE_ENV === 'development') {
+        setEvents(mockEvents);
+        setTotalCount(mockEvents.length);
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [token, API_URL, page, rowsPerPage, filters]);
+  
+  // Fetch events when dependencies change
+  useEffect(() => {
+    fetchEvents();
+  }, [fetchEvents]);
 
   const handleChangePage = (event: unknown, newPage: number) => {
     setPage(newPage);
@@ -103,12 +178,35 @@ const Events: React.FC = () => {
     setPage(0);
   };
 
+  // Filter handlers
   const handleOpenFilterDialog = () => {
     setOpenFilterDialog(true);
   };
 
   const handleCloseFilterDialog = () => {
     setOpenFilterDialog(false);
+  };
+  
+  const handleTextFilterChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = event.target;
+    setFilters({
+      ...filters,
+      [name]: value
+    });
+  };
+  
+  const handleSelectFilterChange = (event: SelectChangeEvent) => {
+    const { name, value } = event.target;
+    setFilters({
+      ...filters,
+      [name]: value
+    });
+  };
+  
+  const handleApplyFilters = () => {
+    setPage(0); // Reset to first page when applying filters
+    setOpenFilterDialog(false);
+    fetchEvents();
   };
 
   const handleViewEvent = (event: any) => {
@@ -160,7 +258,8 @@ const Events: React.FC = () => {
     }
   };
 
-  if (loading) {
+  // Loading state
+  if (loading && events.length === 0) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
         <CircularProgress />
@@ -180,6 +279,7 @@ const Events: React.FC = () => {
             color="primary"
             sx={{ mr: 2 }}
             onClick={toggleViewMode}
+            disabled={loading}
           >
             {viewMode === 'table' ? 'Grid View' : 'Table View'}
           </Button>
@@ -188,11 +288,31 @@ const Events: React.FC = () => {
             color="primary"
             startIcon={<FilterListIcon />}
             onClick={handleOpenFilterDialog}
+            disabled={loading}
           >
             Filter
           </Button>
         </Box>
       </Box>
+      
+      {/* Error message */}
+      {error && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {error}
+        </Alert>
+      )}
+      
+      {/* Empty state */}
+      {events.length === 0 && !loading && (
+        <Box sx={{ textAlign: 'center', py: 5 }}>
+          <Typography variant="h6" color="text.secondary" gutterBottom>
+            No events found
+          </Typography>
+          <Typography variant="body1" color="text.secondary">
+            Try adjusting your filters or check back later
+          </Typography>
+        </Box>
+      )}
       
       {viewMode === 'table' ? (
         <>
@@ -243,13 +363,14 @@ const Events: React.FC = () => {
           </TableContainer>
           
           <TablePagination
-            rowsPerPageOptions={[5, 10, 25]}
+            rowsPerPageOptions={[5, 10, 25, 50]}
             component="div"
-            count={events.length}
+            count={totalCount}
             rowsPerPage={rowsPerPage}
             page={page}
             onPageChange={handleChangePage}
             onRowsPerPageChange={handleChangeRowsPerPage}
+            labelDisplayedRows={({ from, to, count }) => `${from}-${to} of ${count !== -1 ? count : `more than ${to}`}`}
           />
         </>
       ) : (
@@ -302,13 +423,14 @@ const Events: React.FC = () => {
           
           <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
             <TablePagination
-              rowsPerPageOptions={[4, 8, 12, 16]}
+              rowsPerPageOptions={[4, 8, 12, 16, 24]}
               component="div"
-              count={events.length}
+              count={totalCount}
               rowsPerPage={rowsPerPage}
               page={page}
               onPageChange={handleChangePage}
               onRowsPerPageChange={handleChangeRowsPerPage}
+              labelDisplayedRows={({ from, to, count }) => `${from}-${to} of ${count !== -1 ? count : `more than ${to}`}`}
             />
           </Box>
         </>
@@ -323,6 +445,9 @@ const Events: React.FC = () => {
             <Select
               labelId="event-type-select-label"
               id="event-type-select"
+              name="eventType"
+              value={filters.eventType}
+              onChange={handleSelectFilterChange}
               label="Event Type"
             >
               <MenuItem value="all">All Types</MenuItem>
@@ -338,21 +463,28 @@ const Events: React.FC = () => {
             <Select
               labelId="camera-select-label"
               id="camera-select"
+              name="cameraId"
+              value={filters.cameraId}
+              onChange={handleSelectFilterChange}
               label="Camera"
             >
               <MenuItem value="all">All Cameras</MenuItem>
-              <MenuItem value="1">Front Door</MenuItem>
-              <MenuItem value="2">Backyard</MenuItem>
-              <MenuItem value="3">Garage</MenuItem>
-              <MenuItem value="4">Living Room</MenuItem>
+              {cameras.map(camera => (
+                <MenuItem key={camera.id} value={camera.id}>
+                  {camera.name}
+                </MenuItem>
+              ))}
             </Select>
           </FormControl>
           
           <TextField
             margin="normal"
+            name="startDate"
             label="Start Date"
             type="datetime-local"
             fullWidth
+            value={filters.startDate}
+            onChange={handleTextFilterChange}
             InputLabelProps={{
               shrink: true,
             }}
@@ -360,9 +492,12 @@ const Events: React.FC = () => {
           
           <TextField
             margin="normal"
+            name="endDate"
             label="End Date"
             type="datetime-local"
             fullWidth
+            value={filters.endDate}
+            onChange={handleTextFilterChange}
             InputLabelProps={{
               shrink: true,
             }}
@@ -373,6 +508,9 @@ const Events: React.FC = () => {
             <Select
               labelId="confidence-select-label"
               id="confidence-select"
+              name="minConfidence"
+              value={filters.minConfidence}
+              onChange={handleSelectFilterChange}
               label="Minimum Confidence"
             >
               <MenuItem value="0">Any</MenuItem>
@@ -384,8 +522,13 @@ const Events: React.FC = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseFilterDialog}>Cancel</Button>
-          <Button variant="contained" color="primary">
-            Apply Filters
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={handleApplyFilters}
+            disabled={loading}
+          >
+            {loading ? <CircularProgress size={24} /> : 'Apply Filters'}
           </Button>
         </DialogActions>
       </Dialog>

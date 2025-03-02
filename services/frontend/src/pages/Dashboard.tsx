@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Grid,
@@ -49,54 +50,63 @@ const mockSystemStatus = {
 };
 
 const Dashboard: React.FC = () => {
-  const [cameras, setCameras] = useState(mockCameras);
-  const [events, setEvents] = useState(mockEvents);
-  const [systemStatus, setSystemStatus] = useState(mockSystemStatus);
+  const navigate = useNavigate();
+  
+  // State
+  const [cameras, setCameras] = useState<any[]>([]);
+  const [events, setEvents] = useState<any[]>([]);
+  const [systemStatus, setSystemStatus] = useState<any>(mockSystemStatus);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  
   const { token } = useAuth();
   
   // API URL from environment variable
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1';
 
-  // In a real implementation, we would fetch data from the API
-  useEffect(() => {
-    const fetchDashboardData = async () => {
-      if (!token) return;
-      
-      setLoading(true);
-      
-      try {
-        // These would be real API calls in production
-        /*
-        const [camerasResponse, eventsResponse, systemResponse] = await Promise.all([
-          axios.get(`${API_URL}/cameras`, {
-            headers: { Authorization: `Bearer ${token}` }
-          }),
-          axios.get(`${API_URL}/events?limit=5`, {
-            headers: { Authorization: `Bearer ${token}` }
-          }),
-          axios.get(`${API_URL}/system/status`, {
-            headers: { Authorization: `Bearer ${token}` }
-          })
-        ]);
-        
-        setCameras(camerasResponse.data.cameras);
-        setEvents(eventsResponse.data.events);
-        setSystemStatus(systemResponse.data);
-        */
-        
-        // Simulate API delay
-        setTimeout(() => {
-          setLoading(false);
-        }, 500);
-      } catch (error) {
-        console.error('Error fetching dashboard data:', error);
-        setLoading(false);
-      }
-    };
+  // Fetch dashboard data
+  const fetchDashboardData = useCallback(async () => {
+    if (!token) return;
     
-    fetchDashboardData();
+    setLoading(true);
+    setError(null);
+    
+    try {
+      // Fetch data in parallel
+      const [camerasResponse, eventsResponse, systemResponse] = await Promise.all([
+        axios.get(`${API_URL}/cameras`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        axios.get(`${API_URL}/events?limit=5`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        axios.get(`${API_URL}/system/status`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+      ]);
+      
+      setCameras(camerasResponse.data.cameras || []);
+      setEvents(eventsResponse.data.events || []);
+      setSystemStatus(systemResponse.data || mockSystemStatus);
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+      setError('Failed to load dashboard data. Please try again.');
+      
+      // Use mock data in development
+      if (process.env.NODE_ENV === 'development') {
+        setCameras(mockCameras);
+        setEvents(mockEvents);
+        setSystemStatus(mockSystemStatus);
+      }
+    } finally {
+      setLoading(false);
+    }
   }, [token, API_URL]);
+  
+  // Fetch data on component mount
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
 
   // Format date for display
   const formatDate = (dateString: string) => {
@@ -104,7 +114,8 @@ const Dashboard: React.FC = () => {
     return date.toLocaleString();
   };
 
-  if (loading) {
+  // Loading state
+  if (loading && cameras.length === 0 && events.length === 0) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
         <CircularProgress />
@@ -118,10 +129,40 @@ const Dashboard: React.FC = () => {
         Dashboard
       </Typography>
       
+      {/* Error message */}
+      {error && (
+        <Paper sx={{ p: 2, mb: 3, bgcolor: 'error.light' }}>
+          <Typography color="error.dark">{error}</Typography>
+        </Paper>
+      )}
+      
+      {/* Refresh button */}
+      {(error || loading) && (
+        <Box sx={{ mb: 3 }}>
+          <Button
+            variant="outlined"
+            onClick={fetchDashboardData}
+            disabled={loading}
+          >
+            {loading ? 'Refreshing...' : 'Refresh Dashboard'}
+          </Button>
+        </Box>
+      )}
+      
       {/* System Status */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
         <Grid item xs={12} md={3}>
-          <Paper sx={{ p: 2, display: 'flex', flexDirection: 'column', height: 140 }}>
+          <Paper
+            sx={{
+              p: 2,
+              display: 'flex',
+              flexDirection: 'column',
+              height: 140,
+              cursor: 'pointer',
+              '&:hover': { bgcolor: 'action.hover' }
+            }}
+            onClick={() => navigate('/cameras')}
+          >
             <Typography variant="h6" color="primary" gutterBottom>
               Cameras
             </Typography>
@@ -134,7 +175,17 @@ const Dashboard: React.FC = () => {
           </Paper>
         </Grid>
         <Grid item xs={12} md={3}>
-          <Paper sx={{ p: 2, display: 'flex', flexDirection: 'column', height: 140 }}>
+          <Paper
+            sx={{
+              p: 2,
+              display: 'flex',
+              flexDirection: 'column',
+              height: 140,
+              cursor: 'pointer',
+              '&:hover': { bgcolor: 'action.hover' }
+            }}
+            onClick={() => navigate('/settings')}
+          >
             <Typography variant="h6" color="primary" gutterBottom>
               Storage
             </Typography>
@@ -147,7 +198,17 @@ const Dashboard: React.FC = () => {
           </Paper>
         </Grid>
         <Grid item xs={12} md={3}>
-          <Paper sx={{ p: 2, display: 'flex', flexDirection: 'column', height: 140 }}>
+          <Paper
+            sx={{
+              p: 2,
+              display: 'flex',
+              flexDirection: 'column',
+              height: 140,
+              cursor: 'pointer',
+              '&:hover': { bgcolor: 'action.hover' }
+            }}
+            onClick={() => navigate('/recordings')}
+          >
             <Typography variant="h6" color="primary" gutterBottom>
               Recordings
             </Typography>
@@ -160,7 +221,17 @@ const Dashboard: React.FC = () => {
           </Paper>
         </Grid>
         <Grid item xs={12} md={3}>
-          <Paper sx={{ p: 2, display: 'flex', flexDirection: 'column', height: 140 }}>
+          <Paper
+            sx={{
+              p: 2,
+              display: 'flex',
+              flexDirection: 'column',
+              height: 140,
+              cursor: 'pointer',
+              '&:hover': { bgcolor: 'action.hover' }
+            }}
+            onClick={() => navigate('/events')}
+          >
             <Typography variant="h6" color="primary" gutterBottom>
               Events
             </Typography>
@@ -175,69 +246,125 @@ const Dashboard: React.FC = () => {
       </Grid>
       
       {/* Camera Feeds */}
-      <Typography variant="h5" gutterBottom>
-        Camera Feeds
-      </Typography>
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        {cameras.map((camera) => (
-          <Grid item xs={12} sm={6} md={3} key={camera.id}>
-            <Card>
-              <CardMedia
-                component="img"
-                height="140"
-                image={camera.thumbnail}
-                alt={camera.name}
-              />
-              <CardContent>
-                <Typography gutterBottom variant="h6" component="div">
-                  {camera.name}
-                </Typography>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                  {camera.status === 'online' ? (
-                    <CheckCircleIcon color="success" sx={{ mr: 1 }} />
-                  ) : (
-                    <WarningIcon color="error" sx={{ mr: 1 }} />
-                  )}
-                  <Typography variant="body2" color="text.secondary">
-                    {camera.status === 'online' ? 'Online' : 'Offline'}
-                  </Typography>
-                </Box>
-                <Button size="small" color="primary">
-                  View Live
-                </Button>
-              </CardContent>
-            </Card>
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h5" gutterBottom>
+          Camera Feeds
+        </Typography>
+        
+        {cameras.length === 0 ? (
+          <Paper sx={{ p: 3, textAlign: 'center' }}>
+            <Typography variant="body1" color="text.secondary" gutterBottom>
+              No cameras found
+            </Typography>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={() => navigate('/cameras')}
+              sx={{ mt: 1 }}
+            >
+              Add Camera
+            </Button>
+          </Paper>
+        ) : (
+          <Grid container spacing={3}>
+            {cameras.map((camera) => (
+              <Grid item xs={12} sm={6} md={3} key={camera.id}>
+                <Card>
+                  <CardMedia
+                    component="img"
+                    height="140"
+                    image={camera.thumbnail || `https://via.placeholder.com/300x200?text=${encodeURIComponent(camera.name)}`}
+                    alt={camera.name}
+                  />
+                  <CardContent>
+                    <Typography gutterBottom variant="h6" component="div">
+                      {camera.name}
+                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                      {camera.status === 'online' ? (
+                        <CheckCircleIcon color="success" sx={{ mr: 1 }} />
+                      ) : (
+                        <WarningIcon color="error" sx={{ mr: 1 }} />
+                      )}
+                      <Typography variant="body2" color="text.secondary">
+                        {camera.status === 'online' ? 'Online' : 'Offline'}
+                      </Typography>
+                    </Box>
+                    <Button
+                      size="small"
+                      color="primary"
+                      onClick={() => navigate(`/live/${camera.id}`)}
+                      disabled={camera.status !== 'online'}
+                    >
+                      {camera.status === 'online' ? 'View Live' : 'Offline'}
+                    </Button>
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
           </Grid>
-        ))}
-      </Grid>
+        )}
+      </Box>
       
       {/* Recent Events */}
-      <Typography variant="h5" gutterBottom>
-        Recent Events
-      </Typography>
-      <Paper sx={{ width: '100%', mb: 4 }}>
-        <List>
-          {events.map((event) => (
-            <React.Fragment key={event.id}>
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h5" gutterBottom>
+          Recent Events
+        </Typography>
+        
+        {events.length === 0 ? (
+          <Paper sx={{ p: 3, textAlign: 'center' }}>
+            <Typography variant="body1" color="text.secondary" gutterBottom>
+              No recent events
+            </Typography>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={() => navigate('/events')}
+              sx={{ mt: 1 }}
+            >
+              View All Events
+            </Button>
+          </Paper>
+        ) : (
+          <Paper sx={{ width: '100%' }}>
+            <List>
+              {events.map((event) => (
+                <React.Fragment key={event.id}>
+                  <ListItem>
+                    <ListItemIcon>
+                      {event.type === 'motion' && <NotificationsIcon />}
+                      {event.type === 'person' && <VideocamIcon />}
+                      {event.type === 'vehicle' && <VideoLibraryIcon />}
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={`${event.type.charAt(0).toUpperCase() + event.type.slice(1)} detected`}
+                      secondary={`${event.camera} - ${formatDate(event.timestamp)}`}
+                    />
+                    <Button
+                      size="small"
+                      color="primary"
+                      onClick={() => navigate(`/events?id=${event.id}`)}
+                    >
+                      View Details
+                    </Button>
+                  </ListItem>
+                  <Divider variant="inset" component="li" />
+                </React.Fragment>
+              ))}
               <ListItem>
-                <ListItemIcon>
-                  {event.type === 'motion' && <NotificationsIcon />}
-                  {event.type === 'person' && <VideocamIcon />}
-                  {event.type === 'vehicle' && <VideoLibraryIcon />}
-                </ListItemIcon>
-                <ListItemText
-                  primary={`${event.type.charAt(0).toUpperCase() + event.type.slice(1)} detected`}
-                  secondary={`${event.camera} - ${formatDate(event.timestamp)}`}
-                />
-                <Button size="small" color="primary">
-                  View
+                <Button
+                  fullWidth
+                  onClick={() => navigate('/events')}
+                  sx={{ textAlign: 'center' }}
+                >
+                  View All Events
                 </Button>
               </ListItem>
-              <Divider variant="inset" component="li" />
-            </React.Fragment>
-          ))}
-        </List>
-      </Paper>
+            </List>
+          </Paper>
+        )}
+      </Box>
     </Box>
   );
 };
