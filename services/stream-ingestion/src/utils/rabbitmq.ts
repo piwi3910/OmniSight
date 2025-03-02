@@ -1,4 +1,4 @@
-import amqp from 'amqplib';
+import * as amqp from 'amqplib';
 import config from '../config/config';
 import logger from './logger';
 
@@ -20,26 +20,30 @@ export const initRabbitMQ = async (): Promise<void> => {
     logger.info('Connected to RabbitMQ');
     
     // Create channel
-    channel = await connection.createChannel();
-    logger.info('Created RabbitMQ channel');
-    
-    // Set up exchanges
-    await channel.assertExchange(config.rabbitmq.frameExchange, 'topic', { durable: true });
-    await channel.assertExchange(config.rabbitmq.eventExchange, 'topic', { durable: true });
-    logger.info('RabbitMQ exchanges set up');
-    
-    // Handle connection close
-    connection.on('close', () => {
-      logger.error('RabbitMQ connection closed');
-      // Attempt to reconnect after delay
-      setTimeout(initRabbitMQ, 5000);
-    });
-    
-    // Handle errors
-    connection.on('error', (err) => {
-      logger.error('RabbitMQ connection error:', err);
-      // Connection will close and trigger the 'close' event
-    });
+    if (connection) {
+      channel = await connection.createChannel();
+      logger.info('Created RabbitMQ channel');
+      
+      // Set up exchanges
+      if (channel) {
+        await channel.assertExchange(config.rabbitmq.frameExchange, 'topic', { durable: true });
+        await channel.assertExchange(config.rabbitmq.eventExchange, 'topic', { durable: true });
+        logger.info('RabbitMQ exchanges set up');
+      }
+      
+      // Handle connection close
+      connection.on('close', () => {
+        logger.error('RabbitMQ connection closed');
+        // Attempt to reconnect after delay
+        setTimeout(initRabbitMQ, 5000);
+      });
+      
+      // Handle errors
+      connection.on('error', (err) => {
+        logger.error('RabbitMQ connection error:', err);
+        // Connection will close and trigger the 'close' event
+      });
+    }
   } catch (error) {
     logger.error('Failed to connect to RabbitMQ:', error);
     // Attempt to reconnect after delay

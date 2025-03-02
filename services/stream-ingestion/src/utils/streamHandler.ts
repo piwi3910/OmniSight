@@ -139,7 +139,7 @@ export const startStream = async (
     
     // Publish stream error event
     await publishStreamEvent(cameraId, 'error', 'error', {
-      error: error.message,
+      error: error instanceof Error ? error.message : String(error),
       timestamp: new Date().toISOString()
     });
     
