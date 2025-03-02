@@ -2,35 +2,21 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
-import dotenv from 'dotenv';
-import { createLogger, format, transports } from 'winston';
-import fs from 'fs-extra';
+import fs from 'fs';
 import path from 'path';
-
-// Load environment variables
-dotenv.config();
+import config from './config/config';
+import logger from './utils/logger';
+import { initRabbitMQ, closeRabbitMQ } from './utils/rabbitmq';
+import { initRecordingDirectories, stopAllRecordings } from './utils/recordingManager';
+import { cleanupOldRecordings } from './utils/storageManager';
+import recordingRoutes from './routes/recordingRoutes';
 
 // Create Express app
 const app = express();
-const port = process.env.PORT || 3002;
-const recordingsPath = process.env.RECORDINGS_PATH || path.join(__dirname, '../recordings');
+const port = config.server.port;
 
-// Ensure recordings directory exists
-fs.ensureDirSync(recordingsPath);
-
-// Configure logger
-const logger = createLogger({
-  level: process.env.LOG_LEVEL || 'info',
-  format: format.combine(
-    format.timestamp(),
-    format.json()
-  ),
-  transports: [
-    new transports.Console(),
-    new transports.File({ filename: 'logs/error.log', level: 'error' }),
-    new transports.File({ filename: 'logs/combined.log' })
-  ]
-});
+// Initialize recording directories
+initRecordingDirectories();
 
 // Middleware
 app.use(cors());
@@ -43,34 +29,13 @@ app.get('/health', (req, res) => {
   res.status(200).json({ 
     status: 'ok', 
     service: 'recording',
-    recordingsPath,
-    diskSpace: {
-      // In a real implementation, we would check available disk space
-      available: 'To be implemented'
-    }
+    version: '1.0.0',
+    environment: config.server.env
   });
 });
 
 // API routes
-app.get('/api/recordings', (req, res) => {
-  res.status(200).json({ message: 'Recordings list endpoint (to be implemented)' });
-});
-
-app.post('/api/recordings/start', (req, res) => {
-  res.status(201).json({ message: 'Start recording endpoint (to be implemented)' });
-});
-
-app.post('/api/recordings/:id/stop', (req, res) => {
-  res.status(200).json({ message: 'Stop recording endpoint (to be implemented)' });
-});
-
-app.get('/api/recordings/:id', (req, res) => {
-  res.status(200).json({ message: 'Get recording details endpoint (to be implemented)' });
-});
-
-app.get('/api/recordings/:id/segments', (req, res) => {
-  res.status(200).json({ message: 'Get recording segments endpoint (to be implemented)' });
-});
+app.use('/api/recordings', recordingRoutes);
 
 // Error handling middleware
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -79,16 +44,49 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
 });
 
 // Start server
-app.listen(port, () => {
-  logger.info(`Recording Service running on port ${port}`);
-  logger.info(`Recordings will be stored in: ${recordingsPath}`);
-});
+const startServer = async () => {
+  try {
+    // Initialize RabbitMQ
+    await initRabbitMQ();
+    
+    // Start server
+    app.listen(port, () => {
+      logger.info(`Recording Service running on port ${port}`);
+      logger.info(`Environment: ${config.server.env}`);
+      logger.info(`Recordings directory: ${config.recording.path}`);
+    });
+    
+    // Set up storage cleanup interval
+    setInterval(async () => {
+      logger.info('Running scheduled storage cleanup');
+      await cleanupOldRecordings();
+    }, config.storage.cleanupInterval * 1000);
+  } catch (error) {
+    logger.error('Failed to start server:', error);
+    process.exit(1);
+  }
+};
 
 // Handle graceful shutdown
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, shutting down gracefully');
-  // Close any active recordings, connections, etc.
-  process.exit(0);
+  
+  try {
+    // Stop all active recordings
+    await stopAllRecordings();
+    
+    // Close RabbitMQ connection
+    await closeRabbitMQ();
+    
+    logger.info('Graceful shutdown completed');
+    process.exit(0);
+  } catch (error) {
+    logger.error('Error during graceful shutdown:', error);
+    process.exit(1);
+  }
 });
+
+// Start the server
+startServer();
 
 export default app;
