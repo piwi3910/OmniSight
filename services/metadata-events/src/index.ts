@@ -7,7 +7,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import http from 'http';
 import path from 'path';
 import fs from 'fs';
-import sequelize, { testConnection } from './config/database';
+import { prisma, testConnection } from './prisma/client';
 import logger from './utils/logger';
 import { initNotificationManager } from './utils/notificationManager';
 import { initRetentionManager } from './utils/retentionManager';
@@ -16,6 +16,7 @@ import { initRetentionManager } from './utils/retentionManager';
 import eventRoutes from './routes/eventRoutes';
 import notificationRoutes from './routes/notificationRoutes';
 import retentionRoutes from './routes/retentionRoutes';
+import userRoutes from './routes/userRoutes';
 
 // Load environment variables
 dotenv.config();
@@ -61,10 +62,21 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Test Prisma connection endpoint
+app.get('/api/test-prisma', async (req, res) => {
+  try {
+    await testConnection();
+    res.status(200).json({ status: 'ok', message: 'Prisma connection successful' });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: 'Prisma connection failed' });
+  }
+});
+
 // API routes
 app.use('/api/events', eventRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/retention', retentionRoutes);
+app.use('/api/users', userRoutes);
 
 // WebSocket setup
 io.on('connection', (socket) => {
@@ -101,16 +113,15 @@ const startServer = async () => {
     // Test database connection
     await testConnection();
     
-    // Sync database models (in development only)
-    if (process.env.NODE_ENV === 'development') {
-      await sequelize.sync({ alter: true });
-      logger.info('Database synced');
-    }
+    // With Prisma, we don't need to sync models
+    // Database migrations are handled through Prisma Migrate
+    logger.info('Database connection established');
     
     // Start server
     server.listen(port, () => {
-      logger.info(`Metadata & Events Service running on port ${port}`);
+      logger.info(`Metadata & Events Service (Prisma Edition) running on port ${port}`);
       logger.info(`Thumbnails will be stored in: ${thumbnailsPath}`);
+      logger.info(`Visit http://localhost:${port}/api/test-prisma to test Prisma connection`);
     });
   } catch (error) {
     logger.error('Failed to start server:', error);
@@ -132,7 +143,7 @@ process.on('SIGTERM', () => {
     logger.info('HTTP server closed');
     
     // Close database connection
-    sequelize.close().then(() => {
+    prisma.$disconnect().then(() => {
       logger.info('Database connection closed');
       process.exit(0);
     });
