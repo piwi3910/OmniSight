@@ -33,7 +33,7 @@ export const getAllEvents = async (req: Request, res: Response) => {
     // If cameraId is provided, we need to find recordings for that camera
     if (cameraId) {
       const recordings = await Recording.findAll({
-        where: { cameraId },
+        where: { cameraId: cameraId.toString() },
         attributes: ['id']
       });
       
@@ -171,22 +171,22 @@ export const getEventById = async (req: Request, res: Response) => {
       thumbnailPath: event.thumbnailPath,
       metadata: event.metadata,
       camera: {
-        id: event.recording?.camera?.id,
-        name: event.recording?.camera?.name,
-        location: event.recording?.camera?.location
+        id: (event as any).recording?.camera?.id,
+        name: (event as any).recording?.camera?.name,
+        location: (event as any).recording?.camera?.location
       },
       recording: {
         id: event.recordingId,
-        startTime: event.recording?.startTime,
-        endTime: event.recording?.endTime
+        startTime: (event as any).recording?.startTime,
+        endTime: (event as any).recording?.endTime
       },
-      segment: event.segment ? {
+      segment: (event as any).segment ? {
         id: event.segmentId,
-        filePath: event.segment.filePath,
-        startTime: event.segment.startTime,
-        endTime: event.segment.endTime
+        filePath: (event as any).segment.filePath,
+        startTime: (event as any).segment.startTime,
+        endTime: (event as any).segment.endTime
       } : null,
-      detectedObjects: event.detectedObjects?.map((obj: any) => ({
+      detectedObjects: (event as any).detectedObjects?.map((obj: any) => ({
         id: obj.id,
         type: obj.type,
         confidence: obj.confidence,
@@ -542,7 +542,7 @@ export const getEventsByRecording = async (req: Request, res: Response) => {
         startTime: recording.startTime,
         endTime: recording.endTime,
         duration: recording.duration,
-        camera: recording.camera
+        camera: (recording as any).camera
       },
       pagination: {
         total: count,

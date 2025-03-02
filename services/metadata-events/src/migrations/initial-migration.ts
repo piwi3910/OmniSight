@@ -1,7 +1,9 @@
-import { QueryInterface, DataTypes, Sequelize } from 'sequelize';
+const { DataTypes } = require('sequelize');
 
+// @ts-ignore
 module.exports = {
-  up: async (queryInterface: QueryInterface, sequelize: Sequelize) => {
+  // @ts-ignore
+  up: async (queryInterface, sequelize) => {
     // Create cameras table
     await queryInterface.createTable('cameras', {
       id: {
@@ -397,7 +399,8 @@ module.exports = {
     await queryInterface.addIndex('detected_objects', ['type']);
   },
 
-  down: async (queryInterface: QueryInterface, sequelize: Sequelize) => {
+  // @ts-ignore
+  down: async (queryInterface, sequelize) => {
     // Drop tables in reverse order
     await queryInterface.dropTable('detected_objects');
     await queryInterface.dropTable('events');

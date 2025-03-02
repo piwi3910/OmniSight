@@ -1,30 +1,40 @@
-import { Sequelize, DataTypes, Model } from 'sequelize';
+import { Sequelize, DataTypes } from 'sequelize';
 import sequelize from '../config/database';
 
 // Import models
-import Camera from './Camera';
-import Stream from './Stream';
-import Recording from './Recording';
-import Segment from './Segment';
-import Event from './Event';
-import DetectedObject from './DetectedObject';
-import User from './User';
+import CameraInit from './Camera';
+import StreamInit from './Stream';
+import RecordingInit from './Recording';
+import SegmentInit from './Segment';
+import EventInit from './Event';
+import DetectedObjectInit from './DetectedObject';
+import UserInit from './User';
 
 // Initialize models
-const models = {
-  Camera: Camera(sequelize, DataTypes),
-  Stream: Stream(sequelize, DataTypes),
-  Recording: Recording(sequelize, DataTypes),
-  Segment: Segment(sequelize, DataTypes),
-  Event: Event(sequelize, DataTypes),
-  DetectedObject: DetectedObject(sequelize, DataTypes),
-  User: User(sequelize, DataTypes)
+const Camera = CameraInit(sequelize, DataTypes);
+const Stream = StreamInit(sequelize, DataTypes);
+const Recording = RecordingInit(sequelize, DataTypes);
+const Segment = SegmentInit(sequelize, DataTypes);
+const Event = EventInit(sequelize, DataTypes);
+const DetectedObject = DetectedObjectInit(sequelize, DataTypes);
+const User = UserInit(sequelize, DataTypes);
+
+// Define models object with a simple type
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const models: any = {
+  Camera,
+  Stream,
+  Recording,
+  Segment,
+  Event,
+  DetectedObject,
+  User
 };
 
 // Set up associations
 Object.keys(models).forEach((modelName) => {
-  if (models[modelName as keyof typeof models].associate) {
-    models[modelName as keyof typeof models].associate(models);
+  if (models[modelName].associate) {
+    models[modelName].associate(models);
   }
 });
 
