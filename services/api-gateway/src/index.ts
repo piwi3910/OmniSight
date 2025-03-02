@@ -8,6 +8,7 @@ import config from './config/config';
 import logger from './utils/logger';
 import routes from './routes/routes';
 import { websocketProxy } from './middleware/proxy';
+import { setupSwagger } from './utils/swagger';
 
 // Create Express app
 const app = express();
@@ -38,11 +39,16 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Setup Swagger
+setupSwagger(app);
+
 // API routes
 app.use('/api/v1', routes);
 
 // WebSocket proxy
-server.on('upgrade', websocketProxy.upgrade);
+if (websocketProxy.upgrade) {
+  server.on('upgrade', websocketProxy.upgrade);
+}
 
 // Error handling middleware
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {

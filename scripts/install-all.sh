@@ -62,13 +62,6 @@ install_service_deps() {
 # Main script
 echo -e "${YELLOW}Starting installation of all dependencies...${NC}"
 
-# Create node_modules directory if it doesn't exist
-mkdir -p node_modules
-
-# Install shared dependencies
-echo -e "${YELLOW}Installing shared dependencies...${NC}"
-npm install
-
 # Install dependencies for each service
 services=("api-gateway" "metadata-events" "stream-ingestion" "recording" "object-detection" "frontend")
 
@@ -95,8 +88,7 @@ cd "${ROOT_DIR}"
 
 echo -e "${GREEN}All dependencies installed successfully!${NC}"
 echo -e "${YELLOW}Next steps:${NC}"
-echo -e "1. Create a .env file based on .env.example"
-echo -e "2. Start the services with 'docker-compose up -d'"
-echo -e "3. Access the frontend at http://localhost:3000"
+echo -e "1. Start the services with 'docker-compose up -d'"
+echo -e "2. Access the frontend at http://localhost:3000"
 
 exit 0

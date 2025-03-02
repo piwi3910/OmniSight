@@ -6,9 +6,63 @@ import logger from '../utils/logger';
 import { generateToken, generateRefreshToken, verifyRefreshToken } from '../middleware/auth';
 
 /**
- * User login
- * 
- * @route POST /api/v1/auth/login
+ * @swagger
+ * /auth/login:
+ *   post:
+ *     summary: User login
+ *     description: Authenticate a user and return JWT tokens
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - email
+ *               - password
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User's email address
+ *               password:
+ *                 type: string
+ *                 format: password
+ *                 description: User's password
+ *     responses:
+ *       200:
+ *         description: Login successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 token:
+ *                   type: string
+ *                   description: JWT access token
+ *                 refreshToken:
+ *                   type: string
+ *                   description: JWT refresh token
+ *                 user:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                     username:
+ *                       type: string
+ *                     email:
+ *                       type: string
+ *                       format: email
+ *                     role:
+ *                       type: string
+ *       400:
+ *         description: Missing required fields
+ *       401:
+ *         description: Invalid credentials
+ *       500:
+ *         description: Server error
  */
 export const login = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -83,9 +137,65 @@ export const login = async (req: Request, res: Response): Promise<void> => {
 };
 
 /**
- * User registration
- * 
- * @route POST /api/v1/auth/register
+ * @swagger
+ * /auth/register:
+ *   post:
+ *     summary: User registration
+ *     description: Register a new user and return JWT tokens
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - username
+ *               - email
+ *               - password
+ *             properties:
+ *               username:
+ *                 type: string
+ *                 description: User's username
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 description: User's email address
+ *               password:
+ *                 type: string
+ *                 format: password
+ *                 description: User's password
+ *     responses:
+ *       201:
+ *         description: Registration successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 token:
+ *                   type: string
+ *                   description: JWT access token
+ *                 refreshToken:
+ *                   type: string
+ *                   description: JWT refresh token
+ *                 user:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                     username:
+ *                       type: string
+ *                     email:
+ *                       type: string
+ *                       format: email
+ *                     role:
+ *                       type: string
+ *       400:
+ *         description: Missing required fields or user already exists
+ *       500:
+ *         description: Server error
  */
 export const register = async (req: Request, res: Response): Promise<void> => {
   try {
@@ -159,9 +269,44 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 };
 
 /**
- * Refresh token
- * 
- * @route POST /api/v1/auth/refresh
+ * @swagger
+ * /auth/refresh:
+ *   post:
+ *     summary: Refresh access token
+ *     description: Use a refresh token to get a new access token
+ *     tags: [Authentication]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - refreshToken
+ *             properties:
+ *               refreshToken:
+ *                 type: string
+ *                 description: JWT refresh token
+ *     responses:
+ *       200:
+ *         description: Token refresh successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 token:
+ *                   type: string
+ *                   description: New JWT access token
+ *                 refreshToken:
+ *                   type: string
+ *                   description: New JWT refresh token
+ *       400:
+ *         description: Missing refresh token
+ *       401:
+ *         description: Invalid refresh token
+ *       500:
+ *         description: Server error
  */
 export const refresh = (req: Request, res: Response): void => {
   try {
@@ -205,9 +350,44 @@ export const refresh = (req: Request, res: Response): void => {
 };
 
 /**
- * Get current user
- * 
- * @route GET /api/v1/auth/me
+ * @swagger
+ * /auth/me:
+ *   get:
+ *     summary: Get current user
+ *     description: Get information about the currently authenticated user
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: User information retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                     username:
+ *                       type: string
+ *                     email:
+ *                       type: string
+ *                       format: email
+ *                     role:
+ *                       type: string
+ *                     lastLogin:
+ *                       type: string
+ *                       format: date-time
+ *                     settings:
+ *                       type: object
+ *       401:
+ *         description: Not authenticated
+ *       500:
+ *         description: Server error
  */
 export const getCurrentUser = async (req: Request, res: Response): Promise<void> => {
   try {

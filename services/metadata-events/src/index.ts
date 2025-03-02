@@ -3,15 +3,19 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 import dotenv from 'dotenv';
-import { createLogger, format, transports } from 'winston';
 import { Server as SocketIOServer } from 'socket.io';
 import http from 'http';
 import path from 'path';
 import fs from 'fs';
 import sequelize, { testConnection } from './config/database';
+import logger from './utils/logger';
+import { initNotificationManager } from './utils/notificationManager';
+import { initRetentionManager } from './utils/retentionManager';
 
 // Import routes
 import eventRoutes from './routes/eventRoutes';
+import notificationRoutes from './routes/notificationRoutes';
+import retentionRoutes from './routes/retentionRoutes';
 
 // Load environment variables
 dotenv.config();
@@ -33,19 +37,11 @@ if (!fs.existsSync(thumbnailsPath)) {
   fs.mkdirSync(thumbnailsPath, { recursive: true });
 }
 
-// Configure logger
-const logger = createLogger({
-  level: process.env.LOG_LEVEL || 'info',
-  format: format.combine(
-    format.timestamp(),
-    format.json()
-  ),
-  transports: [
-    new transports.Console(),
-    new transports.File({ filename: 'logs/error.log', level: 'error' }),
-    new transports.File({ filename: 'logs/combined.log' })
-  ]
-});
+// Initialize notification manager with Socket.IO
+initNotificationManager(io);
+
+// Initialize retention manager
+initRetentionManager();
 
 // Middleware
 app.use(cors());
@@ -67,6 +63,8 @@ app.get('/health', (req, res) => {
 
 // API routes
 app.use('/api/events', eventRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/retention', retentionRoutes);
 
 // WebSocket setup
 io.on('connection', (socket) => {
