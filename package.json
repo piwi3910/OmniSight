@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "@types/node": "^22.13.8",
+    "axios": "^1.8.1",
+    "onvif": "^0.8.0",
+    "sdp-transform": "^2.15.0",
+    "uuid": "^11.1.0",
+    "ws": "^8.18.1"
+  }
+}
