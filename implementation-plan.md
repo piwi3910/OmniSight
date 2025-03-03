@@ -27,16 +27,19 @@ This document outlines the implementation plan for completing the OmniSight vide
 - Database indexing and optimization
 - Health check endpoints
 - Service monitoring
+- RTSP stream connection and management
+- Stream health monitoring and auto-reconnection
+- Frame distribution via RabbitMQ
 
 ### ⚠️ Partially Implemented
 
 - Service monitoring dashboard
 - Automated testing
+- Video recording functionality
 
 ### ❌ Missing Components
 
-- RTSP stream handling and processing
-- Video recording and segmentation
+- Video segmentation and storage
 - Object detection with TensorFlow.js
 - Storage management and retention policies
 - Media playback in frontend
@@ -100,11 +103,11 @@ This document outlines the implementation plan for completing the OmniSight vide
 
 - [x] Create camera connection test script
 - [x] Configure real IP cameras with authentication
-- [ ] Complete RTSP connection with node-rtsp-stream
-- [ ] Set up FFmpeg processing for video frames
-- [ ] Implement frame distribution via RabbitMQ
-- [ ] Add stream health monitoring and auto-reconnection
-- [ ] Create stream status API endpoints
+- [x] Complete RTSP connection with node-rtsp-stream
+- [x] Set up FFmpeg processing for video frames
+- [x] Implement frame distribution via RabbitMQ
+- [x] Add stream health monitoring and auto-reconnection
+- [x] Create stream status API endpoints
 
 #### 2.2 Recording Service
 
@@ -224,12 +227,34 @@ This document outlines the implementation plan for completing the OmniSight vide
 
 ## Detailed Implementation Notes
 
-### Stream Handling Architecture
+### Stream Processing Pipeline
+
+The Stream Ingestion Service now provides:
 
 ```
-RTSP Camera → Stream Ingestion → RabbitMQ → [Recording Service, Object Detection]
-                                           ↓
-                                   Metadata & Events → WebSocket → Frontend
+RTSP Camera → Stream Ingestion Service → RabbitMQ → [Recording Service, Object Detection]
+                      ↓                                ↓
+             Health Monitoring,               Frame Processing,
+             Auto-reconnection                Event Generation
+```
+
+Key features implemented:
+- Connection management with auto-reconnect capabilities
+- Frame processing using FFmpeg
+- RabbitMQ integration for frame distribution
+- Stream status tracking and monitoring
+- Error handling and failure recovery
+
+### Recording Architecture
+
+The recording flow will work as follows:
+
+```
+Video Frames → Recording Service → File Storage
+                     ↓                  ↓
+              Segment Creation     Metadata Storage
+                     ↓
+            Thumbnail Generation
 ```
 
 ### Object Detection Pipeline
@@ -261,7 +286,7 @@ Thumbnail Generation                                           Database Storage 
 | Week | Milestone | Key Deliverables |
 |------|-----------|------------------|
 | Week 1 | API Foundation | API Gateway standardization, Database completion |
-| Week 2 | Stream Processing | RTSP handling, Frame distribution |
+| Week 2 | Stream Processing | RTSP handling, Frame distribution ✓ |
 | Week 3 | Recording & Detection | Video recording, Object detection, Event creation |
 | Week 4 | Core Frontend | Live view, Basic recording playback |
 | Week 5 | Frontend Completion | Event browser, Settings, Multi-camera support |

@@ -1,291 +1,503 @@
-import Stream from 'node-rtsp-stream';
-import fs from 'fs';
-import path from 'path';
-import axios from 'axios';
+import { RabbitMQManager, MessageType, StreamFramePayload } from '@omnisight/shared';
+import { Stream } from 'node-rtsp-stream';
+import ffmpeg from 'fluent-ffmpeg';
 import { v4 as uuidv4 } from 'uuid';
+import { Writable } from 'stream';
 import config from '../config/config';
 import logger from './logger';
-import { publishVideoFrame, publishStreamEvent } from './rabbitmq';
+import { getCameraById, updateStreamStatus } from '../controllers/streamController';
 
-// Map to store active streams
-const activeStreams: Map<string, StreamInstance> = new Map();
-
-// Interface for stream options
-interface StreamOptions {
-  name: string;
-  url: string;
-  username?: string;
-  password?: string;
-  frameRate?: number;
-  width?: number;
-  height?: number;
-}
-
-// Interface for stream instance
-interface StreamInstance {
-  id: string;
-  cameraId: string;
+// Map of active streams by streamId
+const activeStreams = new Map<string, {
   stream: Stream;
-  options: StreamOptions;
-  startTime: Date;
+  ffmpegProcess?: ffmpeg.FfmpegCommand;
   frameCount: number;
-  lastFrameTime?: Date;
-  isActive: boolean;
-  error?: Error;
-}
+  startTime: Date;
+  lastFrameTime: Date;
+  status: 'connecting' | 'active' | 'error' | 'stopped';
+  healthCheckInterval?: NodeJS.Timeout;
+  reconnectAttempts: number;
+}>();
+
+// Reference to RabbitMQ manager
+let rabbitmqManager: RabbitMQManager;
 
 /**
- * Create RTSP stream URL with authentication if provided
+ * Initialize RabbitMQ connection for stream publishing
  */
-const createAuthUrl = (url: string, username?: string, password?: string): string => {
-  if (!username || !password) {
-    return url;
-  }
-  
+export const initializeRabbitMQ = async (): Promise<void> => {
   try {
-    const urlObj = new URL(url);
-    urlObj.username = username;
-    urlObj.password = password;
-    return urlObj.toString();
+    // Create RabbitMQ manager
+    rabbitmqManager = new RabbitMQManager({
+      url: config.rabbitmq.url,
+      serviceName: 'stream-ingestion',
+      logger
+    });
+    
+    // Connect to RabbitMQ
+    await rabbitmqManager.connect();
+    
+    // Set up exchanges
+    await rabbitmqManager.setupTopology();
+    
+    logger.info('RabbitMQ connection established for stream publishing');
   } catch (error) {
-    logger.error(`Invalid URL: ${url}`, error);
-    return url;
+    logger.error('Failed to initialize RabbitMQ:', error);
+    throw error;
   }
 };
 
 /**
  * Start a new RTSP stream
+ * @param cameraId - ID of the camera to stream
+ * @param rtspUrl - RTSP URL to connect to
+ * @param streamOptions - Stream options
  */
 export const startStream = async (
   cameraId: string,
-  options: StreamOptions
-): Promise<StreamInstance | null> => {
+  rtspUrl: string,
+  streamOptions: {
+    name?: string;
+    frameRate?: number;
+    width?: number;
+    height?: number;
+    quality?: number;
+    authentication?: {
+      username: string;
+      password: string;
+    };
+    publishFrames?: boolean;
+  } = {}
+): Promise<string> => {
   try {
-    // Generate stream ID
+    // Get camera details
+    const camera = await getCameraById(cameraId);
+    
+    if (!camera) {
+      throw new Error(`Camera with ID ${cameraId} not found`);
+    }
+    
+    // Generate a unique stream ID
     const streamId = uuidv4();
     
-    // Create auth URL if credentials provided
-    const streamUrl = createAuthUrl(options.url, options.username, options.password);
+    // Set default options
+    const options = {
+      name: streamOptions.name || `Stream_${camera.name}`,
+      frameRate: streamOptions.frameRate || 15,
+      width: streamOptions.width || 640,
+      height: streamOptions.height || 480,
+      quality: streamOptions.quality || 3,
+      publishFrames: streamOptions.publishFrames !== false
+    };
     
-    // Ensure data directory exists
-    const dataDir = path.join(config.stream.dataPath, cameraId);
-    if (!fs.existsSync(dataDir)) {
-      fs.mkdirSync(dataDir, { recursive: true });
+    // Build RTSP URL with authentication if provided
+    let fullRtspUrl = rtspUrl;
+    if (streamOptions.authentication) {
+      const { username, password } = streamOptions.authentication;
+      // Insert credentials into URL
+      fullRtspUrl = rtspUrl.replace(
+        /rtsp:\/\//,
+        `rtsp://${encodeURIComponent(username)}:${encodeURIComponent(password)}@`
+      );
     }
     
-    // Set up stream options
-    const streamOptions = {
-      name: options.name,
-      streamUrl,
-      wsPort: 0, // We don't need WebSocket server
-      ffmpegOptions: {
-        '-stats': '', // Print encoding progress/statistics
-        '-r': options.frameRate || config.stream.frameRate,
-        '-s': `${options.width || config.stream.width}x${options.height || config.stream.height}`,
-        '-q:v': '3', // Quality level (lower is better)
+    logger.info(`Starting stream for camera ${cameraId} with ID ${streamId}`);
+    
+    // Create a custom output stream that publishes frames to RabbitMQ
+    const framePublisher = new Writable({
+      objectMode: true,
+      write: (chunk, encoding, callback) => {
+        publishFrameToRabbitMQ(streamId, cameraId, chunk.toString('base64'))
+          .then(() => callback())
+          .catch(err => {
+            logger.error(`Error publishing frame for stream ${streamId}:`, err);
+            callback();
+          });
       }
-    };
+    });
     
-    // Create stream instance
-    const stream = new Stream(streamOptions);
+    // Create FFmpeg process for the stream
+    const ffmpegProcess = ffmpeg(fullRtspUrl)
+      .inputOptions([
+        '-rtsp_transport tcp',
+        '-re',
+        '-analyzeduration 1000000'
+      ])
+      .outputOptions([
+        `-r ${options.frameRate}`,
+        `-s ${options.width}x${options.height}`,
+        '-q:v 3',
+        '-f image2',
+        '-update 1'
+      ])
+      .format('image2pipe')
+      .outputFormat('jpeg');
     
-    // Create stream instance object
-    const streamInstance: StreamInstance = {
-      id: streamId,
-      cameraId,
-      stream,
-      options,
-      startTime: new Date(),
+    // If publishing frames is enabled, pipe to the frame publisher
+    if (options.publishFrames) {
+      ffmpegProcess.pipe(framePublisher);
+    }
+    
+    // Create RTSP stream
+    const rtspStream = new Stream({
+      name: options.name,
+      streamUrl: fullRtspUrl,
+      wsPort: 0, // Disable WebSocket server as we're using FFmpeg
+      ffmpegOptions: {
+        '-rtsp_transport': 'tcp',
+        '-r': options.frameRate.toString(),
+        '-q:v': options.quality.toString()
+      }
+    });
+    
+    // Store stream in active streams map
+    activeStreams.set(streamId, {
+      stream: rtspStream,
+      ffmpegProcess,
       frameCount: 0,
-      isActive: true
-    };
-    
-    // Store in active streams map
-    activeStreams.set(streamId, streamInstance);
-    
-    // Set up event handlers
-    stream.on('data', (data: Buffer) => {
-      handleFrameData(streamInstance, data);
+      startTime: new Date(),
+      lastFrameTime: new Date(),
+      status: 'connecting',
+      reconnectAttempts: 0
     });
     
-    stream.on('error', (error: Error) => {
-      handleStreamError(streamInstance, error);
-    });
+    // Set up stream health check
+    setupStreamHealthCheck(streamId, cameraId);
     
     // Publish stream started event
-    await publishStreamEvent(cameraId, streamId, 'started', {
-      name: options.name,
-      url: options.url,
-      startTime: streamInstance.startTime.toISOString()
+    await publishStreamEvent(
+      MessageType.STREAM_STARTED,
+      streamId,
+      cameraId,
+      {
+        rtspUrl,
+        options,
+        startTime: new Date().toISOString()
+      }
+    );
+    
+    // Update stream status in the database
+    await updateStreamStatus(streamId, {
+      cameraId,
+      status: 'active',
+      startedAt: new Date(),
+      options
     });
     
-    // Notify recording service
-    try {
-      await axios.post(`${config.recordingService.url}/api/recordings/start`, {
-        cameraId,
-        streamId,
-        name: options.name,
-        startTime: streamInstance.startTime.toISOString()
-      });
-    } catch (error) {
-      logger.error(`Failed to notify recording service for stream ${streamId}:`, error);
-    }
+    logger.info(`Stream ${streamId} started successfully`);
     
-    logger.info(`Started stream ${streamId} for camera ${cameraId}`);
-    
-    return streamInstance;
+    return streamId;
   } catch (error) {
     logger.error(`Failed to start stream for camera ${cameraId}:`, error);
-    
-    // Publish stream error event
-    await publishStreamEvent(cameraId, 'error', 'error', {
-      error: error instanceof Error ? error.message : String(error),
-      timestamp: new Date().toISOString()
-    });
-    
-    return null;
+    throw error;
   }
 };
 
 /**
- * Handle frame data from stream
+ * Stop an active stream
+ * @param streamId - ID of the stream to stop
  */
-const handleFrameData = async (streamInstance: StreamInstance, data: Buffer): Promise<void> => {
+export const stopStream = async (streamId: string): Promise<void> => {
   try {
-    // Update stream instance
-    streamInstance.frameCount++;
-    streamInstance.lastFrameTime = new Date();
+    const streamInfo = activeStreams.get(streamId);
     
-    // Publish frame to RabbitMQ
-    await publishVideoFrame(
-      streamInstance.cameraId,
-      streamInstance.id,
-      data,
-      streamInstance.lastFrameTime
-    );
-  } catch (error) {
-    logger.error(`Error handling frame data for stream ${streamInstance.id}:`, error);
-  }
-};
-
-/**
- * Handle stream error
- */
-const handleStreamError = async (streamInstance: StreamInstance, error: Error): Promise<void> => {
-  try {
-    logger.error(`Stream ${streamInstance.id} error:`, error);
-    
-    // Update stream instance
-    streamInstance.isActive = false;
-    streamInstance.error = error;
-    
-    // Publish stream error event
-    await publishStreamEvent(
-      streamInstance.cameraId,
-      streamInstance.id,
-      'error',
-      {
-        error: error.message,
-        timestamp: new Date().toISOString()
-      }
-    );
-    
-    // Attempt to restart stream after delay
-    setTimeout(() => {
-      if (activeStreams.has(streamInstance.id)) {
-        logger.info(`Attempting to restart stream ${streamInstance.id}`);
-        stopStream(streamInstance.id);
-        startStream(streamInstance.cameraId, streamInstance.options);
-      }
-    }, config.stream.reconnectInterval);
-  } catch (error) {
-    logger.error(`Error handling stream error for ${streamInstance.id}:`, error);
-  }
-};
-
-/**
- * Stop a stream
- */
-export const stopStream = async (streamId: string): Promise<boolean> => {
-  try {
-    // Get stream instance
-    const streamInstance = activeStreams.get(streamId);
-    if (!streamInstance) {
-      logger.warn(`Stream ${streamId} not found`);
-      return false;
+    if (!streamInfo) {
+      logger.warn(`Attempted to stop non-existent stream: ${streamId}`);
+      return;
     }
     
-    // Stop stream
-    streamInstance.stream.stop();
+    logger.info(`Stopping stream ${streamId}`);
     
-    // Update stream instance
-    streamInstance.isActive = false;
+    // Stop health check
+    if (streamInfo.healthCheckInterval) {
+      clearInterval(streamInfo.healthCheckInterval);
+    }
+    
+    // Stop FFmpeg process
+    if (streamInfo.ffmpegProcess) {
+      streamInfo.ffmpegProcess.kill('SIGTERM');
+    }
+    
+    // Stop RTSP stream
+    if (streamInfo.stream) {
+      streamInfo.stream.stop();
+    }
+    
+    // Get camera ID before removing from map
+    const cameraId = streamInfo.stream.cameraId;
     
     // Remove from active streams
     activeStreams.delete(streamId);
     
     // Publish stream stopped event
     await publishStreamEvent(
-      streamInstance.cameraId,
+      MessageType.STREAM_STOPPED,
       streamId,
-      'stopped',
+      cameraId,
       {
-        name: streamInstance.options.name,
-        startTime: streamInstance.startTime.toISOString(),
         endTime: new Date().toISOString(),
-        frameCount: streamInstance.frameCount
+        frameCount: streamInfo.frameCount,
+        duration: (new Date().getTime() - streamInfo.startTime.getTime()) / 1000
       }
     );
     
-    // Notify recording service
+    // Update stream status in the database
+    await updateStreamStatus(streamId, {
+      status: 'stopped',
+      endedAt: new Date()
+    });
+    
+    logger.info(`Stream ${streamId} stopped successfully`);
+    
+  } catch (error) {
+    logger.error(`Error stopping stream ${streamId}:`, error);
+    throw error;
+  }
+};
+
+/**
+ * Set up stream health monitoring
+ * @param streamId - ID of the stream to monitor
+ * @param cameraId - ID of the camera
+ */
+const setupStreamHealthCheck = (streamId: string, cameraId: string): void => {
+  const streamInfo = activeStreams.get(streamId);
+  
+  if (!streamInfo) {
+    return;
+  }
+  
+  // Check stream health every 5 seconds
+  const healthCheckInterval = setInterval(async () => {
     try {
-      await axios.post(`${config.recordingService.url}/api/recordings/${streamId}/stop`, {
-        endTime: new Date().toISOString()
-      });
+      const currentTime = new Date();
+      const timeSinceLastFrame = currentTime.getTime() - streamInfo.lastFrameTime.getTime();
+      
+      // If no frames received in 10 seconds, consider stream unhealthy
+      if (timeSinceLastFrame > 10000) {
+        logger.warn(`Stream ${streamId} unhealthy: No frames for ${timeSinceLastFrame}ms`);
+        
+        // Update status to error
+        if (streamInfo.status !== 'error') {
+          streamInfo.status = 'error';
+          
+          // Publish stream error event
+          await publishStreamEvent(
+            MessageType.STREAM_ERROR,
+            streamId,
+            cameraId,
+            {
+              error: 'No frames received',
+              timeSinceLastFrame,
+              timestamp: currentTime.toISOString()
+            }
+          );
+          
+          // Update stream status in the database
+          await updateStreamStatus(streamId, {
+            status: 'error',
+            lastError: 'No frames received'
+          });
+        }
+        
+        // Attempt to reconnect if not already at max attempts
+        if (streamInfo.reconnectAttempts < config.stream.maxReconnectAttempts) {
+          logger.info(`Attempting to reconnect stream ${streamId} (attempt ${streamInfo.reconnectAttempts + 1}/${config.stream.maxReconnectAttempts})`);
+          
+          streamInfo.reconnectAttempts++;
+          
+          // Restart FFmpeg process
+          if (streamInfo.ffmpegProcess) {
+            streamInfo.ffmpegProcess.kill('SIGTERM');
+            
+            // Create new FFmpeg process
+            // This is simplified - in practice you would need to recreate it with the same options
+            streamInfo.ffmpegProcess = ffmpeg(streamInfo.stream.streamUrl);
+          }
+        } else {
+          logger.error(`Stream ${streamId} failed after ${streamInfo.reconnectAttempts} reconnect attempts`);
+          
+          // Stop the stream
+          await stopStream(streamId);
+        }
+      } else {
+        // Stream is healthy
+        if (streamInfo.status !== 'active') {
+          logger.info(`Stream ${streamId} healthy again`);
+          streamInfo.status = 'active';
+          streamInfo.reconnectAttempts = 0;
+          
+          // Update stream status in the database
+          await updateStreamStatus(streamId, {
+            status: 'active'
+          });
+        }
+      }
     } catch (error) {
-      logger.error(`Failed to notify recording service to stop recording for stream ${streamId}:`, error);
+      logger.error(`Error in health check for stream ${streamId}:`, error);
+    }
+  }, 5000);
+  
+  // Store health check interval
+  streamInfo.healthCheckInterval = healthCheckInterval;
+};
+
+/**
+ * Publish a video frame to RabbitMQ
+ * @param streamId - ID of the stream
+ * @param cameraId - ID of the camera
+ * @param frameData - Base64 encoded frame data
+ */
+const publishFrameToRabbitMQ = async (
+  streamId: string,
+  cameraId: string,
+  frameData: string
+): Promise<void> => {
+  try {
+    if (!rabbitmqManager) {
+      logger.error('RabbitMQ not initialized');
+      return;
     }
     
-    logger.info(`Stopped stream ${streamId}`);
+    const streamInfo = activeStreams.get(streamId);
     
-    return true;
+    if (!streamInfo) {
+      logger.warn(`Attempted to publish frame for non-existent stream: ${streamId}`);
+      return;
+    }
+    
+    // Update frame count and last frame time
+    streamInfo.frameCount++;
+    streamInfo.lastFrameTime = new Date();
+    
+    // Create frame payload
+    const framePayload: StreamFramePayload = {
+      streamId,
+      cameraId,
+      timestamp: new Date().toISOString(),
+      frameNumber: streamInfo.frameCount,
+      width: 640, // Should come from stream config
+      height: 480, // Should come from stream config
+      format: 'jpeg',
+      data: frameData
+    };
+    
+    // Publish frame to streams exchange
+    await rabbitmqManager.publish(
+      'streams',
+      `stream.${cameraId}.frame`,
+      rabbitmqManager.createMessage(
+        MessageType.STREAM_FRAME,
+        framePayload
+      )
+    );
+    
+    // Log every 100 frames
+    if (streamInfo.frameCount % 100 === 0) {
+      logger.debug(`Published frame ${streamInfo.frameCount} for stream ${streamId}`);
+    }
   } catch (error) {
-    logger.error(`Failed to stop stream ${streamId}:`, error);
-    return false;
+    logger.error(`Error publishing frame for stream ${streamId}:`, error);
   }
 };
 
 /**
- * Get all active streams
+ * Publish a stream event to RabbitMQ
+ * @param eventType - Type of event
+ * @param streamId - ID of the stream
+ * @param cameraId - ID of the camera
+ * @param data - Event data
  */
-export const getActiveStreams = (): StreamInstance[] => {
-  return Array.from(activeStreams.values());
+const publishStreamEvent = async (
+  eventType: MessageType,
+  streamId: string,
+  cameraId: string,
+  data: any
+): Promise<void> => {
+  try {
+    if (!rabbitmqManager) {
+      logger.error('RabbitMQ not initialized');
+      return;
+    }
+    
+    // Publish event to streams exchange
+    await rabbitmqManager.publish(
+      'streams',
+      `stream.${cameraId}.event`,
+      rabbitmqManager.createMessage(
+        eventType,
+        {
+          streamId,
+          cameraId,
+          ...data
+        }
+      )
+    );
+    
+    logger.info(`Published ${eventType} event for stream ${streamId}`);
+  } catch (error) {
+    logger.error(`Error publishing ${eventType} event for stream ${streamId}:`, error);
+  }
 };
 
 /**
- * Get a specific stream by ID
+ * Get active streams
+ * @returns Map of active streams
  */
-export const getStream = (streamId: string): StreamInstance | undefined => {
-  return activeStreams.get(streamId);
-};
-
-/**
- * Get all streams for a camera
- */
-export const getStreamsByCamera = (cameraId: string): StreamInstance[] => {
-  return Array.from(activeStreams.values())
-    .filter(stream => stream.cameraId === cameraId);
-};
-
-/**
- * Stop all streams
- */
-export const stopAllStreams = async (): Promise<void> => {
-  const streamIds = Array.from(activeStreams.keys());
+export const getActiveStreams = (): Map<string, any> => {
+  // Return a copy of the active streams with necessary information
+  const streams = new Map<string, any>();
   
-  for (const streamId of streamIds) {
-    await stopStream(streamId);
+  activeStreams.forEach((streamInfo, streamId) => {
+    streams.set(streamId, {
+      cameraId: streamInfo.stream.cameraId,
+      status: streamInfo.status,
+      frameCount: streamInfo.frameCount,
+      startTime: streamInfo.startTime,
+      lastFrameTime: streamInfo.lastFrameTime,
+      reconnectAttempts: streamInfo.reconnectAttempts
+    });
+  });
+  
+  return streams;
+};
+
+/**
+ * Get stream status
+ * @param streamId - ID of the stream
+ * @returns Stream status or null if stream doesn't exist
+ */
+export const getStreamStatus = (streamId: string): any => {
+  const streamInfo = activeStreams.get(streamId);
+  
+  if (!streamInfo) {
+    return null;
   }
   
-  logger.info(`Stopped all ${streamIds.length} streams`);
+  return {
+    streamId,
+    cameraId: streamInfo.stream.cameraId,
+    status: streamInfo.status,
+    frameCount: streamInfo.frameCount,
+    startTime: streamInfo.startTime,
+    lastFrameTime: streamInfo.lastFrameTime,
+    uptime: (new Date().getTime() - streamInfo.startTime.getTime()) / 1000,
+    frameRate: calculateFrameRate(streamInfo),
+    reconnectAttempts: streamInfo.reconnectAttempts
+  };
+};
+
+/**
+ * Calculate current frame rate for a stream
+ * @param streamInfo - Stream information
+ * @returns Current frame rate
+ */
+const calculateFrameRate = (streamInfo: any): number => {
+  const uptime = (new Date().getTime() - streamInfo.startTime.getTime()) / 1000;
+  
+  if (uptime <= 0) {
+    return 0;
+  }
+  
+  return Math.round((streamInfo.frameCount / uptime) * 100) / 100;
 };

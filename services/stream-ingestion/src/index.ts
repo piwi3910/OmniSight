@@ -1,89 +1,151 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import morgan from 'morgan';
-import fs from 'fs';
-import path from 'path';
+import { createServer } from 'http';
+import { errorHandler, createHealthCheckManager, commonDependencies } from '@omnisight/shared';
 import config from './config/config';
-import logger from './utils/logger';
-import { initRabbitMQ, closeRabbitMQ } from './utils/rabbitmq';
-import { stopAllStreams } from './utils/streamHandler';
 import streamRoutes from './routes/streamRoutes';
+import logger from './utils/logger';
+import { initializeRabbitMQ } from './utils/streamHandler';
+import { PrismaClient } from '@prisma/client';
 
-// Create Express app
+// Initialize Express application
 const app = express();
-const port = config.server.port;
+const server = createServer(app);
 
-// Ensure data directory exists
-const dataDir = config.stream.dataPath;
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
-  logger.info(`Created data directory: ${dataDir}`);
-}
+// Initialize Prisma client
+const prisma = new PrismaClient();
 
 // Middleware
-app.use(cors());
 app.use(helmet());
-app.use(morgan('combined'));
+app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'ok', 
-    service: 'stream-ingestion',
-    version: '1.0.0',
-    environment: config.server.env
-  });
+// Logging middleware
+app.use((req, res, next) => {
+  logger.info(`${req.method} ${req.url}`);
+  next();
 });
+
+// Health check
+const healthCheck = createHealthCheckManager({
+  serviceName: 'stream-ingestion',
+  version: config.version,
+  dependencies: [
+    // Database health check
+    commonDependencies.createDatabaseCheck({
+      name: 'database',
+      critical: true,
+      checkFn: async () => {
+        await prisma.$queryRaw`SELECT 1`;
+      }
+    }),
+    
+    // RabbitMQ health check
+    commonDependencies.createRabbitMQCheck({
+      name: 'rabbitmq',
+      critical: true,
+      checkFn: async () => {
+        // RabbitMQ initialization handles connection check
+        await initializeRabbitMQ();
+      }
+    })
+  ]
+});
+
+// Add health check routes
+app.use(healthCheck.getHealthCheckRouter());
 
 // API routes
 app.use('/api/streams', streamRoutes);
 
 // Error handling middleware
-app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  logger.error(`Error: ${err.message}`);
-  res.status(500).json({ error: 'Internal Server Error' });
+app.use(errorHandler);
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    error: {
+      code: 'RESOURCE_NOT_FOUND',
+      message: 'The requested resource was not found'
+    }
+  });
 });
 
 // Start server
-const startServer = async () => {
+const PORT = config.server.port;
+
+async function startServer() {
   try {
     // Initialize RabbitMQ
-    await initRabbitMQ();
+    await initializeRabbitMQ();
+    
+    // Start health check monitoring
+    healthCheck.startMonitoring();
     
     // Start server
-    app.listen(port, () => {
-      logger.info(`Stream Ingestion Service running on port ${port}`);
-      logger.info(`Environment: ${config.server.env}`);
-      logger.info(`Data directory: ${dataDir}`);
+    server.listen(PORT, () => {
+      logger.info(`Stream Ingestion Service listening on port ${PORT} in ${config.server.env} mode`);
+      logger.info(`Health check endpoint available at http://localhost:${PORT}/health`);
     });
   } catch (error) {
     logger.error('Failed to start server:', error);
     process.exit(1);
   }
-};
+}
 
-// Handle graceful shutdown
+// Handle server errors
+server.on('error', (error: any) => {
+  if (error.code === 'EADDRINUSE') {
+    logger.error(`Port ${PORT} is already in use`);
+  } else {
+    logger.error('Server error:', error);
+  }
+  process.exit(1);
+});
+
+// Handle unhandled rejections
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
+// Graceful shutdown
 process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, shutting down gracefully');
   
+  // Stop health check monitoring
+  healthCheck.stopMonitoring();
+  
   try {
-    // Stop all active streams
-    await stopAllStreams();
+    // Close Prisma connection
+    await prisma.$disconnect();
+    logger.info('Database connections closed');
     
-    // Close RabbitMQ connection
-    await closeRabbitMQ();
-    
-    logger.info('Graceful shutdown completed');
-    process.exit(0);
+    // Close server
+    server.close(() => {
+      logger.info('HTTP server closed');
+      process.exit(0);
+    });
   } catch (error) {
     logger.error('Error during graceful shutdown:', error);
     process.exit(1);
   }
+  
+  // Force shutdown after 10 seconds
+  setTimeout(() => {
+    logger.error('Forced shutdown after timeout');
+    process.exit(1);
+  }, 10000);
 });
 
 // Start the server
 startServer();
 
-export default app;
+export default server;
