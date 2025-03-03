@@ -1,163 +1,101 @@
 #!/bin/bash
+# Script to start all services in development mode
 
-# Start OmniSight Application locally while using Docker for PostgreSQL and RabbitMQ
+# Colors for output
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
 
-echo "Starting OmniSight Application..."
-echo "Using PostgreSQL and RabbitMQ from Docker"
+echo -e "${YELLOW}Starting OmniSight Services${NC}"
+echo "==========================="
 
-# Check if needed containers are running
-POSTGRES_RUNNING=$(docker ps | grep omnisight-postgres | wc -l)
-RABBITMQ_RUNNING=$(docker ps | grep omnisight-rabbitmq | wc -l)
+# Define root directory
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SERVICES_DIR="$ROOT_DIR/services"
 
-if [ $POSTGRES_RUNNING -eq 0 ] || [ $RABBITMQ_RUNNING -eq 0 ]; then
-  echo "Error: PostgreSQL and/or RabbitMQ containers are not running"
-  echo "Please ensure both containers are running before starting the application"
-  exit 1
+# Check for running services to avoid port conflicts
+echo -e "${YELLOW}Checking for running services...${NC}"
+PORT_CHECK=$(netstat -tuln 2>/dev/null | grep -E ':(3001|3002|3003|3004|8000)' || echo "")
+
+if [ ! -z "$PORT_CHECK" ]; then
+  echo -e "${RED}Warning: Some ports are already in use:${NC}"
+  echo "$PORT_CHECK"
+  echo -e "You may need to stop existing services before starting new ones."
+  read -p "Continue anyway? (y/n) " -n 1 -r
+  echo
+  if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "Aborting startup."
+    exit 1
+  fi
 fi
 
-echo "PostgreSQL and RabbitMQ containers detected and running"
+# Define services with their respective commands
+declare -A services=(
+  ["api-gateway"]="cd $SERVICES_DIR/api-gateway && npm run dev"
+  ["metadata-events"]="cd $SERVICES_DIR/metadata-events && npm run dev"
+  ["stream-ingestion"]="cd $SERVICES_DIR/stream-ingestion && npm run dev"
+  ["recording"]="cd $SERVICES_DIR/recording && npm run dev"
+  ["object-detection"]="cd $SERVICES_DIR/object-detection && npm run dev"
+)
 
-# Create an .env file with correct settings
-cat > .env << EOL
-# OmniSight Environment Variables
-
-# Node.js
-NODE_ENV=development
-
-# Database
-DB_HOST=localhost
-DB_PORT=5432
-DB_USERNAME=postgres
-DB_PASSWORD=postgres
-DB_NAME=omnisight
-
-# RabbitMQ
-RABBITMQ_HOST=localhost
-RABBITMQ_PORT=5672
-RABBITMQ_USER=guest
-RABBITMQ_PASSWORD=guest
-RABBITMQ_MANAGEMENT_PORT=15672
-
-# API Gateway
-API_GATEWAY_PORT=8000
-JWT_SECRET=omnisight_jwt_secret
-JWT_EXPIRATION=1h
-REFRESH_TOKEN_SECRET=omnisight_refresh_token_secret
-REFRESH_TOKEN_EXPIRATION=7d
-
-# Stream Ingestion Service
-STREAM_INGESTION_PORT=3001
-
-# Recording Service
-RECORDING_PORT=3002
-SEGMENT_DURATION=600 # 10 minutes in seconds
-
-# Object Detection Service
-OBJECT_DETECTION_PORT=3003
-DETECTION_INTERVAL=1000 # milliseconds
-MIN_CONFIDENCE=0.6
-
-# Metadata & Events Service
-METADATA_EVENTS_PORT=3004
-
-# Frontend Service
-FRONTEND_PORT=3000
-REACT_APP_API_URL=http://localhost:8000/api/v1
-REACT_APP_WS_URL=ws://localhost:8000/api/v1/ws
-
-# Storage Paths
-RECORDINGS_PATH=./recordings
-THUMBNAILS_PATH=./thumbnails
-EOL
-
-echo "Environment file created"
-
-# Create storage directories
-mkdir -p ./recordings
-mkdir -p ./thumbnails
-echo "Storage directories created"
-
-# Start each service in a new process
-echo "Starting services..."
-
-# Start Metadata & Events Service (with Prisma)
-echo "Starting Metadata & Events Service with Prisma..."
-cd services/metadata-events
-npm run prisma-dev > ../../metadata-events.log 2>&1 &
-METADATA_PID=$!
-cd ../..
-
-# Start API Gateway
-echo "Starting API Gateway..."
-cd services/api-gateway
-npm run dev > ../../api-gateway.log 2>&1 &
-API_GATEWAY_PID=$!
-cd ../..
-
-# Give the API gateway and metadata services time to start
-sleep 5
-
-# Start Stream Ingestion
-echo "Starting Stream Ingestion Service..."
-cd services/stream-ingestion
-npm run dev > ../../stream-ingestion.log 2>&1 &
-STREAM_INGESTION_PID=$!
-cd ../..
-
-# Start Recording Service
-echo "Starting Recording Service..."
-cd services/recording
-npm run dev > ../../recording.log 2>&1 &
-RECORDING_PID=$!
-cd ../..
-
-# Start Object Detection Service
-echo "Starting Object Detection Service..."
-cd services/object-detection
-npm run dev > ../../object-detection.log 2>&1 &
-OBJECT_DETECTION_PID=$!
-cd ../..
-
-# Start Frontend
-echo "Starting Frontend Service..."
-cd services/frontend
-npm run start > ../../frontend.log 2>&1 &
-FRONTEND_PID=$!
-cd ../..
-
-echo "All services started!"
-echo "OmniSight application should be accessible at http://localhost:3000"
-echo "API Gateway is available at http://localhost:8000"
-echo ""
-echo "Service log files:"
-echo "- metadata-events.log"
-echo "- api-gateway.log"
-echo "- stream-ingestion.log"
-echo "- recording.log"
-echo "- object-detection.log"
-echo "- frontend.log"
-echo ""
-echo "Process IDs:"
-echo "- Metadata & Events: $METADATA_PID"
-echo "- API Gateway: $API_GATEWAY_PID"
-echo "- Stream Ingestion: $STREAM_INGESTION_PID"
-echo "- Recording: $RECORDING_PID"
-echo "- Object Detection: $OBJECT_DETECTION_PID"
-echo "- Frontend: $FRONTEND_PID"
-echo ""
-echo "Press Ctrl+C to stop all services"
-
-# Trap the SIGINT signal and stop all services
-function cleanup {
-  echo "Stopping all services..."
-  kill $METADATA_PID $API_GATEWAY_PID $STREAM_INGESTION_PID $RECORDING_PID $OBJECT_DETECTION_PID $FRONTEND_PID 2>/dev/null
-  echo "All services stopped"
-  exit 0
+# Function to start a service in a new terminal
+start_service() {
+  local service_name=$1
+  local command=$2
+  
+  echo -e "${CYAN}Starting $service_name...${NC}"
+  
+  # Open a new terminal with a specific title and run the command
+  # Different commands for different operating systems
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS
+    osascript -e "tell app \"Terminal\" to do script \"echo -e \\\"${YELLOW}$service_name${NC}\\\"; $command\""
+  elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    # Linux: Attempt to detect the terminal
+    if command -v gnome-terminal &> /dev/null; then
+      gnome-terminal --title="$service_name" -- bash -c "$command; exec bash"
+    elif command -v konsole &> /dev/null; then
+      konsole --new-tab -p tabtitle="$service_name" -e bash -c "$command; exec bash"
+    elif command -v xterm &> /dev/null; then
+      xterm -title "$service_name" -e "bash -c '$command; exec bash'" &
+    else
+      # Fallback: Run in background and log to file
+      echo -e "${YELLOW}No supported terminal found. Running $service_name in background.${NC}"
+      bash -c "$command > logs/$service_name.log 2>&1" &
+    fi
+  else
+    echo -e "${RED}Unsupported operating system. Please run services manually.${NC}"
+    echo -e "Command for $service_name: ${CYAN}$command${NC}"
+    return 1
+  fi
+  
+  echo -e "${GREEN}Started $service_name${NC}"
+  return 0
 }
 
-trap cleanup SIGINT
+# Create logs directory if it doesn't exist
+mkdir -p "$ROOT_DIR/logs"
 
-# Wait for user to stop
-while true; do
+# Start each service
+for service in "${!services[@]}"; do
+  start_service "$service" "${services[$service]}"
+  # Add a slight delay to prevent all terminals from opening at once
   sleep 1
 done
+
+# Start frontend separately (React development server)
+echo -e "${CYAN}Starting frontend...${NC}"
+cd "$SERVICES_DIR/frontend" && npm start &
+
+echo -e "${GREEN}All services started!${NC}"
+echo "==========================="
+echo -e "API Gateway:        ${CYAN}http://localhost:8000${NC}"
+echo -e "Frontend:           ${CYAN}http://localhost:3000${NC}"
+echo -e "Metadata & Events:  ${CYAN}http://localhost:3004${NC}"
+echo -e "Stream Ingestion:   ${CYAN}http://localhost:3001${NC}"
+echo -e "Recording:          ${CYAN}http://localhost:3002${NC}"
+echo -e "Object Detection:   ${CYAN}http://localhost:3003${NC}"
+echo "==========================="
+echo -e "To stop all services, use: ${YELLOW}pkill -f 'npm run dev'${NC}"

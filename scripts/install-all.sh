@@ -1,9 +1,5 @@
 #!/bin/bash
-
-# Script to install dependencies for all services
-
-# Set script to exit on error
-set -e
+# Main installation script for the OmniSight system
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -11,84 +7,120 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
-# Root directory
-ROOT_DIR=$(pwd)
+echo -e "${YELLOW}OmniSight Installation${NC}"
+echo "======================="
 
-# Function to install dependencies for a service
-install_service_deps() {
-  local service=$1
-  echo -e "${YELLOW}Installing dependencies for ${service}...${NC}"
+# Define root directory
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPTS_DIR="$ROOT_DIR/scripts"
+
+# Step 1: Build and install shared library
+echo -e "${YELLOW}Step 1: Building shared library...${NC}"
+$SCRIPTS_DIR/install-shared.sh
+if [ $? -ne 0 ]; then
+  echo -e "${RED}Failed to build shared library. Aborting installation.${NC}"
+  exit 1
+fi
+echo -e "${GREEN}Shared library built and installed successfully.${NC}"
+
+# Step 2: Install dependencies for each service
+echo -e "${YELLOW}Step 2: Installing dependencies for all services...${NC}"
+
+# List of services
+services=("api-gateway" "frontend" "metadata-events" "object-detection" "recording" "stream-ingestion")
+
+for service in "${services[@]}"; do
+  SERVICE_DIR="$ROOT_DIR/services/$service"
   
-  cd "${ROOT_DIR}/services/${service}"
+  if [ ! -d "$SERVICE_DIR" ]; then
+    echo -e "${RED}Warning: Service directory not found: $SERVICE_DIR${NC}"
+    continue
+  fi
+  
+  echo -e "${YELLOW}Installing dependencies for $service...${NC}"
+  cd "$SERVICE_DIR" || { echo -e "${RED}Error: Could not enter service directory $SERVICE_DIR${NC}"; continue; }
   
   # Check if package.json exists
   if [ ! -f "package.json" ]; then
-    echo -e "${RED}Error: package.json not found for ${service}${NC}"
-    return 1
+    echo -e "${RED}Warning: package.json not found in $service${NC}"
+    continue
   fi
   
   # Install dependencies
-  npm install
+  npm install || { echo -e "${RED}Error: Failed to install dependencies for $service${NC}"; continue; }
   
-  # Install TypeScript types
-  npm install --save-dev @types/node @types/express
-  
-  # Install additional types based on service
-  case $service in
-    "api-gateway")
-      npm install --save-dev @types/cors @types/helmet @types/morgan @types/compression @types/jsonwebtoken @types/bcrypt @types/http-proxy-middleware
-      ;;
-    "metadata-events")
-      npm install --save-dev @types/cors @types/helmet @types/morgan @types/bcrypt @types/uuid @types/sequelize
-      ;;
-    "stream-ingestion")
-      npm install --save-dev @types/cors @types/helmet @types/morgan @types/amqplib @types/uuid
-      ;;
-    "recording")
-      npm install --save-dev @types/cors @types/helmet @types/morgan @types/amqplib @types/uuid
-      ;;
-    "object-detection")
-      npm install --save-dev @types/cors @types/helmet @types/morgan @types/amqplib @types/uuid @types/multer
-      ;;
-    "frontend")
-      # Frontend has its own types in package.json
-      ;;
-  esac
-  
-  echo -e "${GREEN}Successfully installed dependencies for ${service}${NC}"
-  cd "${ROOT_DIR}"
-}
-
-# Main script
-echo -e "${YELLOW}Starting installation of all dependencies...${NC}"
-
-# Install dependencies for each service
-services=("api-gateway" "metadata-events" "stream-ingestion" "recording" "object-detection" "frontend")
-
-for service in "${services[@]}"; do
-  install_service_deps "$service"
+  echo -e "${GREEN}Dependencies installed successfully for $service!${NC}"
 done
 
-# Install TensorFlow.js models for object detection
-echo -e "${YELLOW}Installing TensorFlow.js models...${NC}"
-cd "${ROOT_DIR}/services/object-detection"
-mkdir -p models
-cd models
-
-# Download COCO-SSD model if it doesn't exist
-if [ ! -d "coco-ssd" ]; then
-  echo -e "${YELLOW}Downloading COCO-SSD model...${NC}"
-  mkdir -p coco-ssd
-  # This is a placeholder - in a real implementation, you would download the model files
-  # For example: curl -L https://storage.googleapis.com/tfjs-models/savedmodel/ssd_mobilenet_v2/model.json -o coco-ssd/model.json
-  echo "// Placeholder for COCO-SSD model" > coco-ssd/model.json
+# Step 3: Set up environment variables
+echo -e "${YELLOW}Step 3: Setting up environment variables...${NC}"
+if [ ! -f "$ROOT_DIR/.env" ]; then
+  if [ -f "$ROOT_DIR/.env.example" ]; then
+    echo "Creating .env file from .env.example..."
+    cp "$ROOT_DIR/.env.example" "$ROOT_DIR/.env"
+    echo -e "${GREEN}Environment file created. Please review and modify .env as needed.${NC}"
+  else
+    echo -e "${RED}Warning: .env.example not found. Please create .env file manually.${NC}"
+  fi
+else
+  echo ".env file already exists."
 fi
 
-cd "${ROOT_DIR}"
+# Step 4: Install and set up database
+echo -e "${YELLOW}Step 4: Setting up database...${NC}"
+cd "$ROOT_DIR/services/metadata-events" || { echo -e "${RED}Error: Could not find metadata-events service${NC}"; exit 1; }
 
-echo -e "${GREEN}All dependencies installed successfully!${NC}"
-echo -e "${YELLOW}Next steps:${NC}"
-echo -e "1. Start the services with 'docker-compose up -d'"
-echo -e "2. Access the frontend at http://localhost:3000"
+# Run Prisma migration and seed
+if command -v npx &> /dev/null; then
+  echo "Running Prisma migrations..."
+  npx prisma migrate dev --name initial || { echo -e "${RED}Error: Failed to run Prisma migrations${NC}"; }
+  
+  echo "Seeding database..."
+  npx prisma db seed || { echo -e "${RED}Error: Failed to seed database${NC}"; }
+else
+  echo -e "${RED}Warning: npx not found. Please run Prisma migrations manually:${NC}"
+  echo "cd services/metadata-events && npx prisma migrate dev && npx prisma db seed"
+fi
 
-exit 0
+# Step 5: Build services
+echo -e "${YELLOW}Step 5: Building services...${NC}"
+for service in "${services[@]}"; do
+  SERVICE_DIR="$ROOT_DIR/services/$service"
+  
+  if [ ! -d "$SERVICE_DIR" ]; then
+    continue
+  fi
+  
+  echo -e "${YELLOW}Building $service...${NC}"
+  cd "$SERVICE_DIR" || continue
+  
+  # Build the service
+  npm run build || { echo -e "${RED}Error: Failed to build $service${NC}"; continue; }
+  
+  echo -e "${GREEN}Built $service successfully!${NC}"
+done
+
+# Step 6: Set up Docker environment (if needed)
+echo -e "${YELLOW}Step 6: Setting up Docker environment...${NC}"
+if command -v docker-compose &> /dev/null; then
+  echo "Checking Docker Compose configuration..."
+  cd "$ROOT_DIR" || exit 1
+  
+  # Check if Docker Compose file exists
+  if [ -f "docker-compose.yml" ]; then
+    echo "Docker Compose file found. You can start the system with:"
+    echo -e "${YELLOW}cd $ROOT_DIR && docker-compose up -d${NC}"
+  else
+    echo -e "${RED}Warning: docker-compose.yml not found.${NC}"
+  fi
+else
+  echo -e "${RED}Warning: docker-compose not found. Please install Docker and Docker Compose to run the system in containers.${NC}"
+fi
+
+echo -e "${GREEN}Installation completed!${NC}"
+echo "======================="
+echo -e "To start the development servers:"
+echo -e "${YELLOW}cd $ROOT_DIR && ./start-app.sh${NC}"
+echo ""
+echo -e "To start with Docker:"
+echo -e "${YELLOW}cd $ROOT_DIR && docker-compose up -d${NC}"
