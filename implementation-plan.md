@@ -239,7 +239,7 @@ This document outlines the implementation plan for completing the OmniSight vide
 - [x] Prepare release notes
 - [x] Create demo videos for key features
 
-### Phase 6: Extended Camera Protocol Support (Week 8-9) ⬜
+### Phase 6: Extended Camera Protocol Support (Week 8-9) ⏳
 
 #### 6.1 MJPEG Protocol Implementation ⬜
 
@@ -263,8 +263,10 @@ This document outlines the implementation plan for completing the OmniSight vide
 - [ ] Implement ONVIF profile support (S, T, G)
 - [ ] Develop ONVIF metadata extraction
 
-#### 6.3 WebRTC Implementation ⬜
+#### 6.3 WebRTC Implementation ⏳
 
+- [x] Define WebRTC protocol interface and types
+- [x] Implement WebRTC protocol in camera protocol abstraction layer
 - [ ] Set up WebRTC signaling server
 - [ ] Implement peer connection management
 - [ ] Create WebRTC stream ingestion pipeline

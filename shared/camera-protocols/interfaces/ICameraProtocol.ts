@@ -200,6 +200,45 @@ export interface CameraConfig {
    * Protocol-specific options
    */
   options?: Record<string, any>;
+  
+  /**
+   * WebRTC signaling server port
+   */
+  webrtcPort?: number;
+  
+  /**
+   * WebRTC configuration
+   */
+  webrtcConfig?: {
+    /**
+     * TURN server address (host:port)
+     */
+    turnServer?: string;
+    
+    /**
+     * TURN server username
+     */
+    turnUsername?: string;
+    
+    /**
+     * TURN server credential
+     */
+    turnCredential?: string;
+    
+    /**
+     * STUN servers
+     */
+    stunServers?: string[];
+    
+    /**
+     * ICE servers configuration
+     */
+    iceServers?: Array<{
+      urls: string | string[];
+      username?: string;
+      credential?: string;
+    }>;
+  };
 }
 
 /**
