@@ -205,6 +205,22 @@ const executeWithRetry = async (fn, maxRetries = 3, initialDelay = 1000) => {
 };
 ```
 
+## Service Boundaries and Route Resolution
+
+To avoid route conflicts between services, the following conventions are used:
+
+| Path Pattern | Responsible Service | Example Endpoint |
+|--------------|---------------------|------------------|
+| `/users/*` | Metadata & Events | `/api/v1/users/123` |
+| `/cameras/*` | Metadata & Events | `/api/v1/cameras/456` |
+| `/events/*` | Metadata & Events | `/api/v1/events/789` |
+| `/streams/*` | Stream Ingestion | `/api/v1/streams/abc` |
+| `/recordings/metadata/*` | Metadata & Events | `/api/v1/recordings/metadata/def` |
+| `/recordings/storage/*` | Recording | `/api/v1/recordings/storage/ghi` |
+| `/segments/metadata/*` | Metadata & Events | `/api/v1/segments/metadata/jkl` |
+| `/segments/storage/*` | Recording | `/api/v1/segments/storage/mno` |
+| `/detection/*` | Object Detection | `/api/v1/detection/pqr` |
+
 ## Health Check Endpoints
 
 Every service exposes a health check endpoint:
@@ -228,10 +244,23 @@ Response:
 }
 ```
 
+## Authentication Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/auth/login` | POST | User login |
+| `/auth/register` | POST | User registration |
+| `/auth/refresh-token` | POST | Refresh access token |
+| `/auth/logout` | POST | Log out user |
+| `/users/me` | GET | Get current user info |
+
 ## Implementation Status
 
-- [ ] Update API Gateway to standardize paths
-- [ ] Implement consistent error handling middleware
-- [ ] Enhance WebSocket authentication and channel management
-- [ ] Add circuit breakers for service communication
-- [ ] Create health check endpoint monitors
+- [x] Create standardized API documentation
+- [x] Update API Gateway to standardize authentication paths
+- [x] Update API Gateway to resolve route conflicts between services
+- [x] Implement WebSocket proxy and connection management
+- [x] Implement consistent error handling middleware
+- [x] Implement circuit breakers for service communication
+- [ ] Add health check endpoint monitors
+- [ ] Standardize RabbitMQ message formats

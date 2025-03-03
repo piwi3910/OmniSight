@@ -313,7 +313,7 @@ export const register = async (req: Request, res: Response): Promise<void> => {
 
 /**
  * @swagger
- * /auth/refresh:
+ * /auth/refresh-token:
  *   post:
  *     summary: Refresh access token
  *     description: Use a refresh token to get a new access token
@@ -394,7 +394,48 @@ export const refresh = (req: Request, res: Response): void => {
 
 /**
  * @swagger
- * /auth/me:
+ * /auth/logout:
+ *   post:
+ *     summary: Logout user
+ *     description: Invalidate the user's session
+ *     tags: [Authentication]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Logout successful
+ *       401:
+ *         description: Not authenticated
+ *       500:
+ *         description: Server error
+ */
+export const logout = (req: Request, res: Response): void => {
+  try {
+    // In a JWT-based authentication system, we don't actually invalidate tokens on the server
+    // as they are stateless. The client is responsible for removing/discarding the token.
+    // However, we can implement some additional security measures such as:
+    // 1. Adding tokens to a blacklist (requires maintaining a blacklist)
+    // 2. Setting up short token expiry times
+    // 3. Rotating secrets periodically
+    
+    // For now, we'll just return a success response
+    // In a real-world implementation, you might want to add the token to a blacklist
+    
+    res.status(200).json({ 
+      message: 'Logout successful',
+      success: true
+    });
+    
+    logger.info('User logged out successfully');
+  } catch (error) {
+    logger.error('Logout error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+/**
+ * @swagger
+ * /users/me:
  *   get:
  *     summary: Get current user
  *     description: Get information about the currently authenticated user

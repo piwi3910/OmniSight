@@ -5,6 +5,7 @@ import {
   login,
   register,
   refresh,
+  logout, // Added logout function
   getCurrentUser
 } from '../controllers/authController';
 import {
@@ -44,28 +45,29 @@ const endpointLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later' }
 });
 
-// Public routes
+// Public routes - Authentication
 router.post('/auth/login', authLimiter, login);
 router.post('/auth/register', authLimiter, register);
-router.post('/auth/refresh', authLimiter, refresh);
+router.post('/auth/refresh-token', authLimiter, refresh); // Updated to match docs: /refresh -> /refresh-token
+router.post('/auth/logout', authLimiter, logout); // Added logout endpoint
 
-// Protected routes
-router.get('/auth/me', authenticate, endpointLimiter, getCurrentUser);
+// Protected routes - User management
+router.get('/users/me', authenticate, endpointLimiter, getCurrentUser); // Updated to match docs: /auth/me -> /users/me
 
 // Metadata & Events Service routes
 router.use('/metadata', authenticate, endpointLimiter, metadataEventsProxy);
 router.use('/events', authenticate, endpointLimiter, metadataEventsProxy);
 router.use('/cameras', authenticate, endpointLimiter, metadataEventsProxy);
-router.use('/recordings', authenticate, endpointLimiter, metadataEventsProxy);
-router.use('/segments', authenticate, endpointLimiter, metadataEventsProxy);
+router.use('/recordings/metadata', authenticate, endpointLimiter, metadataEventsProxy); // Updated path with /metadata prefix
+router.use('/segments/metadata', authenticate, endpointLimiter, metadataEventsProxy); // Updated path with /metadata prefix
 router.use('/users', authenticate, authorize(['admin']), endpointLimiter, metadataEventsProxy);
 
 // Stream Ingestion Service routes
 router.use('/streams', authenticate, endpointLimiter, streamIngestionProxy);
 
 // Recording Service routes
-router.use('/recordings', authenticate, endpointLimiter, recordingProxy);
-router.use('/segments', authenticate, endpointLimiter, recordingProxy);
+router.use('/recordings/storage', authenticate, endpointLimiter, recordingProxy); // Updated path with /storage prefix
+router.use('/segments/storage', authenticate, endpointLimiter, recordingProxy); // Updated path with /storage prefix
 
 // Object Detection Service routes
 router.use('/detection', authenticate, endpointLimiter, objectDetectionProxy);

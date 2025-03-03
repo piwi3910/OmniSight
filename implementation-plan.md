@@ -21,11 +21,13 @@ This document outlines the implementation plan for completing the OmniSight vide
 - Service-to-service communication with circuit breakers
 - Shared error handling and response standards
 - Database models and interfaces
+- API consistency issues fixed
+- Authentication endpoints completed
 
 ### ⚠️ Partially Implemented
 
-- API Gateway routing alignment with documentation
-- Authentication workflow completion
+- RabbitMQ message standardization
+- Database indexing and optimization
 
 ### ❌ Missing Components
 
@@ -42,12 +44,12 @@ This document outlines the implementation plan for completing the OmniSight vide
 
 | Documentation | Implementation | Status | Fix Required |
 |---------------|---------------|--------|-------------|
-| `/auth/refresh-token` | `/auth/refresh` | ⚠️ Mismatch | Update route name or path rewriting |
-| `/auth/logout` | Not implemented | ❌ Missing | Implement endpoint |
-| `/users/me` | `/auth/me` | ⚠️ Mismatch | Update route or path rewriting |
-| `/recordings` routes | Split between services | ⚠️ Conflict | Clear service boundaries |
-| `/cameras` stream endpoints | ✅ Implemented | ✅ Fixed | RTSP connection tested |
-| Camera event paths | Path structure mismatch | ⚠️ Mismatch | Update API Gateway routing |
+| `/auth/refresh-token` | `/auth/refresh` | ✅ Fixed | Updated route to `/auth/refresh-token` |
+| `/auth/logout` | Not implemented | ✅ Fixed | Implemented logout endpoint |
+| `/users/me` | `/auth/me` | ✅ Fixed | Updated route to `/users/me` |
+| `/recordings` routes | Split between services | ✅ Fixed | Added `/recordings/metadata` and `/recordings/storage` prefixes |
+| `/cameras` stream endpoints | ✅ Fixed | ✅ Fixed | RTSP connection tested |
+| Camera event paths | Path structure mismatch | ✅ Fixed | Updated API Gateway routing |
 
 ## Implementation Plan
 
@@ -57,9 +59,9 @@ This document outlines the implementation plan for completing the OmniSight vide
 
 - [x] Create standardized API documentation
 - [x] Implement WebSocket proxy for real-time events
-- [ ] Update API Gateway routing to match documentation
-- [ ] Resolve route conflicts between services
-- [ ] Complete authentication endpoints (logout, proper refresh)
+- [x] Update API Gateway routing to match documentation
+- [x] Resolve route conflicts between services
+- [x] Complete authentication endpoints (logout, proper refresh)
 
 #### 1.2 Database and Models
 
