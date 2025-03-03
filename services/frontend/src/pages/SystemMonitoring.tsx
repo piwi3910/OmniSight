@@ -20,7 +20,7 @@ import {
   Tab,
   Divider
 } from '@mui/material';
-import { styled } from '@mui/material/styles';
+import { styled, Theme } from '@mui/material/styles';
 import { 
   CheckCircle as CheckCircleIcon, 
   Warning as WarningIcon, 
@@ -34,7 +34,7 @@ import {
 import axios from 'axios';
 
 // Define styled components
-const StatusChip = styled(Chip)(({ theme, status }: { theme: any, status: string }) => ({
+const StatusChip = styled(Chip)<{ status: string }>(({ theme, status }) => ({
   backgroundColor: 
     status === 'ok' ? theme.palette.success.main : 
     status === 'degraded' ? theme.palette.warning.main : 
@@ -43,7 +43,7 @@ const StatusChip = styled(Chip)(({ theme, status }: { theme: any, status: string
   fontWeight: 'bold'
 }));
 
-const ServiceCard = styled(Card)(({ theme, status }: { theme: any, status: string }) => ({
+const ServiceCard = styled(Card)<{ status: string }>(({ theme, status }) => ({
   border: `1px solid ${
     status === 'ok' ? theme.palette.success.main : 
     status === 'degraded' ? theme.palette.warning.main : 
