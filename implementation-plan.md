@@ -38,11 +38,17 @@ This document outlines the implementation plan for completing the OmniSight vide
 
 ### ⚠️ Partially Implemented
 
-- Object detection pipeline
+- Object detection pipeline with TensorFlow.js
+  - ✅ Worker thread pool for parallel processing
+  - ✅ Detection task queue management
+  - ✅ Object detection API endpoints
+  - ✅ Configuration management
+  - ⚠️ TensorFlow.js model integration
+  - ⚠️ Detection algorithms for object types
+  - ⚠️ Detection event publishing
 
 ### ❌ Missing Components
 
-- Object detection with TensorFlow.js
 - Media playback in frontend
 - Live view implementation
 - Event notifications
@@ -122,8 +128,12 @@ This document outlines the implementation plan for completing the OmniSight vide
 #### 2.3 Object Detection Service
 
 - [x] Set up worker thread pool for parallel processing
-- [ ] Set up TensorFlow.js model loading
-- [ ] Create detection algorithms for various object types
+- [x] Create detection task queue with priority handling
+- [x] Implement model download script for TensorFlow.js
+- [x] Set up object detection API endpoints
+- [x] Add configuration management for detection settings
+- [ ] Complete TensorFlow.js model integration
+- [ ] Implement detection algorithms for various object types
 - [ ] Add configurable detection regions
 - [ ] Implement confidence thresholds
 - [ ] Set up detection event publishing via RabbitMQ
@@ -278,10 +288,13 @@ Key components implemented:
 - Worker thread pool for parallel processing
 - Detection task queue with priority handling
 - Message distribution from RabbitMQ
+- Model download script for TensorFlow.js
+- API endpoints for detection management
+- Configuration system for detection parameters
 
 Remaining components:
-- TensorFlow.js model loading and integration
-- Object detection algorithms
+- Complete TensorFlow.js model integration
+- Detection algorithms finalization
 - Event generation and publishing
 
 ### Recording Segmentation Strategy
@@ -306,7 +319,7 @@ Remaining components:
 |------|-----------|------------------|
 | Week 1 | API Foundation | API Gateway standardization, Database completion |
 | Week 2 | Stream Processing | RTSP handling, Frame distribution ✓ |
-| Week 3 | Recording & Detection | Video recording ✓, Object detection, Event creation |
+| Week 3 | Recording & Detection | Video recording ✓, Object detection infrastructure ✓, Event creation |
 | Week 4 | Core Frontend | Live view, Basic recording playback |
 | Week 5 | Frontend Completion | Event browser, Settings, Multi-camera support |
 | Week 6 | Testing & Optimization | Performance improvements, Bug fixes |
