@@ -17,7 +17,17 @@ import {
   List,
   ListItem,
   ListItemText,
-  ListItemIcon
+  ListItemIcon,
+  Chip,
+  Menu,
+  MenuItem,
+  SpeedDial,
+  SpeedDialAction,
+  SpeedDialIcon,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions
 } from '@mui/material';
 import {
   PlayArrow as PlayIcon,
@@ -33,10 +43,19 @@ import {
   Videocam as VideocamIcon,
   Event as EventIcon,
   Person as PersonIcon,
-  DirectionsCar as CarIcon
+  DirectionsCar as CarIcon,
+  MoreVert as MoreVertIcon,
+  Speed as SpeedIcon,
+  ZoomIn as ZoomInIcon,
+  Timeline as TimelineIcon,
+  Movie as MovieIcon,
+  Share as ShareIcon,
+  Edit as EditIcon
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { format } from 'date-fns';
+import AdvancedVideoTimeline from '../components/AdvancedVideoTimeline';
+import ExportVideoDialog from '../components/ExportVideoDialog';
 
 const RecordingPlayer: React.FC = () => {
   const { recordingId } = useParams<{ recordingId: string }>();
@@ -58,6 +77,14 @@ const RecordingPlayer: React.FC = () => {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
+  
+  // Advanced state
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
+  const [speedMenuAnchorEl, setSpeedMenuAnchorEl] = useState<null | HTMLElement>(null);
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
+  const [segmentLoading, setSegmentLoading] = useState<boolean>(false);
+  const [showExportDialog, setShowExportDialog] = useState<boolean>(false);
+  const [moreMenuAnchorEl, setMoreMenuAnchorEl] = useState<null | HTMLElement>(null);
   
   // API URL from environment variable
   const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1';
@@ -95,6 +122,13 @@ const RecordingPlayer: React.FC = () => {
         });
         
         setEvents(eventsResponse.data.events || []);
+        
+        // Get thumbnails
+        const thumbnailsResponse = await axios.get(`${API_URL}/recordings/${recordingId}/thumbnails`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        
+        setThumbnails(thumbnailsResponse.data.thumbnails || {});
       } catch (error) {
         console.error('Error fetching recording details:', error);
         setError('Failed to load recording. Please try again.');
@@ -117,8 +151,11 @@ const RecordingPlayer: React.FC = () => {
       } else {
         videoRef.current.pause();
       }
+      
+      // Set playback speed
+      videoRef.current.playbackRate = playbackSpeed;
     }
-  }, [isPlaying, currentSegment]);
+  }, [isPlaying, currentSegment, playbackSpeed]);
   
   // Handle volume changes
   useEffect(() => {
@@ -165,10 +202,10 @@ const RecordingPlayer: React.FC = () => {
   };
   
   // Seek to position
-  const handleSeek = (_: Event, newValue: number | number[]) => {
-    if (videoRef.current && typeof newValue === 'number') {
-      videoRef.current.currentTime = newValue;
-      setProgress(newValue);
+  const handleSeek = (time: number) => {
+    if (videoRef.current) {
+      videoRef.current.currentTime = time;
+      setProgress(time);
     }
   };
   
@@ -227,6 +264,8 @@ const RecordingPlayer: React.FC = () => {
   const navigateSegment = (direction: 'next' | 'prev') => {
     if (!currentSegment || segments.length <= 1) return;
     
+    setSegmentLoading(true);
+    
     const currentIndex = segments.findIndex(segment => segment.id === currentSegment.id);
     if (currentIndex === -1) return;
     
@@ -238,6 +277,14 @@ const RecordingPlayer: React.FC = () => {
     }
     
     setCurrentSegment(segments[newIndex]);
+    setProgress(0); // Reset progress for new segment
+    
+    // Reset segment loading state when video loads
+    const handleLoaded = () => {
+      setSegmentLoading(false);
+      videoRef.current?.removeEventListener('loadeddata', handleLoaded);
+    };
+    videoRef.current?.addEventListener('loadeddata', handleLoaded);
   };
   
   // Jump to event
@@ -253,7 +300,11 @@ const RecordingPlayer: React.FC = () => {
     });
     
     if (segment) {
-      setCurrentSegment(segment);
+      // If different segment, load it
+      if (segment.id !== currentSegment?.id) {
+        setSegmentLoading(true);
+        setCurrentSegment(segment);
+      }
       
       // Calculate time offset within segment
       const segmentStartTime = new Date(segment.startTime).getTime();
@@ -264,6 +315,7 @@ const RecordingPlayer: React.FC = () => {
         if (videoRef.current) {
           videoRef.current.currentTime = Math.max(0, eventOffset - 2); // 2 seconds before event
           setIsPlaying(true);
+          setSegmentLoading(false);
         }
       };
       
@@ -292,6 +344,69 @@ const RecordingPlayer: React.FC = () => {
     }
   };
   
+  // Handle speed change
+  const handleSpeedChange = (speed: number) => {
+    setPlaybackSpeed(speed);
+    setSpeedMenuAnchorEl(null);
+  };
+  
+  // Open speed menu
+  const handleSpeedMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setSpeedMenuAnchorEl(event.currentTarget);
+  };
+  
+  // Close speed menu
+  const handleSpeedMenuClose = () => {
+    setSpeedMenuAnchorEl(null);
+  };
+  
+  // Handle more menu
+  const handleMoreMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setMoreMenuAnchorEl(event.currentTarget);
+  };
+  
+  const handleMoreMenuClose = () => {
+    setMoreMenuAnchorEl(null);
+  };
+  
+  // Show export dialog
+  const handleExportClick = () => {
+    handleMoreMenuClose();
+    setShowExportDialog(true);
+  };
+  
+  // Handle export dialog close
+  const handleExportDialogClose = () => {
+    setShowExportDialog(false);
+  };
+  
+  // Handle jump to segment
+  const handleJumpToSegment = (segment: any) => {
+    if (!segment || segment.id === currentSegment?.id) return;
+    
+    setSegmentLoading(true);
+    setCurrentSegment(segment);
+    setProgress(0); // Reset progress for new segment
+  };
+  
+  // Calculate total recording duration
+  const getTotalDuration = () => {
+    return segments.reduce((total, segment) => total + (segment.duration || 0), 0);
+  };
+  
+  // Calculate current global position
+  const getCurrentGlobalPosition = () => {
+    if (!currentSegment) return 0;
+    
+    // Sum durations of all previous segments
+    const prevSegmentsDuration = segments
+      .slice(0, segments.findIndex(s => s.id === currentSegment.id))
+      .reduce((total, segment) => total + (segment.duration || 0), 0);
+    
+    // Add current progress in current segment
+    return prevSegmentsDuration + progress;
+  };
+  
   if (loading && !recording) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
@@ -306,9 +421,70 @@ const RecordingPlayer: React.FC = () => {
         <IconButton onClick={() => navigate('/recordings')} sx={{ mr: 1 }}>
           <ArrowBackIcon />
         </IconButton>
-        <Typography variant="h5">
+        <Typography variant="h5" sx={{ flexGrow: 1 }}>
           {recording?.camera?.name ? `${recording.camera.name} - Recording` : 'Recording Playback'}
         </Typography>
+        <Chip 
+          label={`${playbackSpeed}x`} 
+          color="primary" 
+          size="small" 
+          icon={<SpeedIcon />}
+          onClick={handleSpeedMenuOpen}
+          sx={{ mr: 1 }}
+        />
+        <IconButton onClick={handleMoreMenuOpen}>
+          <MoreVertIcon />
+        </IconButton>
+        
+        {/* Speed menu */}
+        <Menu
+          anchorEl={speedMenuAnchorEl}
+          open={Boolean(speedMenuAnchorEl)}
+          onClose={handleSpeedMenuClose}
+        >
+          {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 2].map((speed) => (
+            <MenuItem 
+              key={speed} 
+              onClick={() => handleSpeedChange(speed)}
+              selected={playbackSpeed === speed}
+            >
+              {speed}x {speed === 1 && '(Normal)'}
+            </MenuItem>
+          ))}
+        </Menu>
+        
+        {/* More options menu */}
+        <Menu
+          anchorEl={moreMenuAnchorEl}
+          open={Boolean(moreMenuAnchorEl)}
+          onClose={handleMoreMenuClose}
+        >
+          <MenuItem onClick={takeScreenshot}>
+            <ListItemIcon>
+              <ScreenshotIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Take Screenshot</ListItemText>
+          </MenuItem>
+          <MenuItem onClick={downloadSegment}>
+            <ListItemIcon>
+              <DownloadIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Download Current Segment</ListItemText>
+          </MenuItem>
+          <MenuItem onClick={handleExportClick}>
+            <ListItemIcon>
+              <MovieIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Export Custom Video</ListItemText>
+          </MenuItem>
+          <Divider />
+          <MenuItem onClick={() => navigate(`/cameras/${recording?.camera?.id}`)}>
+            <ListItemIcon>
+              <VideocamIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>View Camera</ListItemText>
+          </MenuItem>
+        </Menu>
       </Box>
       
       {error && (
@@ -329,7 +505,7 @@ const RecordingPlayer: React.FC = () => {
               overflow: 'hidden'
             }}
           >
-            {loading && (
+            {(loading || segmentLoading) && (
               <Box 
                 sx={{ 
                   position: 'absolute', 
@@ -340,10 +516,11 @@ const RecordingPlayer: React.FC = () => {
                   display: 'flex', 
                   alignItems: 'center', 
                   justifyContent: 'center',
-                  zIndex: 1
+                  zIndex: 1,
+                  bgcolor: 'rgba(0,0,0,0.5)'
                 }}
               >
-                <CircularProgress />
+                <CircularProgress color="primary" />
               </Box>
             )}
             
@@ -389,31 +566,21 @@ const RecordingPlayer: React.FC = () => {
                 flexDirection: 'column'
               }}
             >
-              <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', mb: 1 }}>
-                <Typography variant="caption" sx={{ color: 'white', minWidth: 45 }}>
-                  {formatTime(progress)}
-                </Typography>
-                <Slider
-                  size="small"
-                  value={progress}
-                  max={duration}
-                  onChange={handleSeek}
-                  sx={{ 
-                    mx: 1, 
-                    flex: 1,
-                    color: 'white',
-                    '& .MuiSlider-thumb': {
-                      width: 12,
-                      height: 12
-                    }
-                  }}
-                />
-                <Typography variant="caption" sx={{ color: 'white', minWidth: 45 }}>
-                  {formatTime(duration)}
-                </Typography>
-              </Box>
+              {/* Advanced timeline component */}
+              <AdvancedVideoTimeline
+                currentTime={progress}
+                duration={duration}
+                segments={segments}
+                events={events}
+                thumbnails={thumbnails}
+                loading={segmentLoading}
+                onSeek={handleSeek}
+                onJumpToEvent={jumpToEvent}
+                onJumpToSegment={handleJumpToSegment}
+                recordingStartTime={recording?.startTime}
+              />
               
-              <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
                 <IconButton 
                   color="inherit" 
                   onClick={() => navigateSegment('prev')}
@@ -485,6 +652,16 @@ const RecordingPlayer: React.FC = () => {
                   </IconButton>
                 </Tooltip>
                 
+                <Tooltip title="Export Video">
+                  <IconButton 
+                    color="inherit" 
+                    onClick={handleExportClick}
+                    sx={{ color: 'white' }}
+                  >
+                    <MovieIcon />
+                  </IconButton>
+                </Tooltip>
+                
                 <Tooltip title="Toggle Fullscreen">
                   <IconButton 
                     color="inherit" 
@@ -529,6 +706,21 @@ const RecordingPlayer: React.FC = () => {
               <Typography variant="body2" color="text.secondary">
                 <strong>Events:</strong> {events.length}
               </Typography>
+              
+              {currentSegment && (
+                <>
+                  <Divider sx={{ my: 2 }} />
+                  <Typography variant="subtitle2" gutterBottom>
+                    Current Segment
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    <strong>Start:</strong> {format(new Date(currentSegment.startTime), 'HH:mm:ss')}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    <strong>Duration:</strong> {formatTime(duration)}
+                  </Typography>
+                </>
+              )}
             </CardContent>
           </Card>
           
@@ -571,6 +763,20 @@ const RecordingPlayer: React.FC = () => {
           </Card>
         </Grid>
       </Grid>
+      
+      {/* Export dialog */}
+      <ExportVideoDialog
+        open={showExportDialog}
+        onClose={handleExportDialogClose}
+        recordingId={recordingId || ''}
+        recordingName={recording?.name || 'Recording'}
+        cameraName={recording?.camera?.name || 'Camera'}
+        segments={segments}
+        token={token || ''}
+        selectedSegmentId={currentSegment?.id}
+        currentTime={getCurrentGlobalPosition()}
+        API_URL={API_URL}
+      />
     </Box>
   );
 };

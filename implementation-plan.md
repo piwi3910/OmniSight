@@ -38,31 +38,28 @@ This document outlines the implementation plan for completing the OmniSight vide
 - Object detection pipeline with TensorFlow.js
 - Multi-camera view implementation
 - Event notifications system
+- Advanced timeline controls
+- Video export functionality with watermarking
+- Motion detection with frame differencing
+- Region of interest filtering
 
 ### ⚠️ Partially Implemented
 
-- Media playback in frontend
-  - ✅ Basic video player component
-  - ✅ Recording segment navigation
-  - ⚠️ Advanced timeline controls
-  - ⚠️ Download/export functionality
+- Event browser UI
+  - ✅ Basic event listing and filtering
+  - ✅ Event details view
+  - ⚠️ Timeline visualization
+  - ⚠️ Advanced filtering options
 
 ### ❌ Missing Components
 
 - Live view improvements
-- Event browser UI
+  - PTZ control integration
+  - Camera preset management
 - Advanced search and filtering
-
-## API Consistency Issues
-
-| Documentation | Implementation | Status | Fix Required |
-|---------------|---------------|--------|-------------|
-| `/auth/refresh-token` | `/auth/refresh` | ✅ Fixed | Updated route to `/auth/refresh-token` |
-| `/auth/logout` | Not implemented | ✅ Fixed | Implemented logout endpoint |
-| `/users/me` | `/auth/me` | ✅ Fixed | Updated route to `/users/me` |
-| `/recordings` routes | Split between services | ✅ Fixed | Added `/recordings/metadata` and `/recordings/storage` prefixes |
-| `/cameras` stream endpoints | ✅ Fixed | ✅ Fixed | RTSP connection tested |
-| Camera event paths | Path structure mismatch | ✅ Fixed | Updated API Gateway routing |
+  - Combined metadata search
+  - Date range + event type filtering
+  - Export search results
 
 ## Implementation Plan
 
@@ -144,7 +141,7 @@ This document outlines the implementation plan for completing the OmniSight vide
 - [x] Implement WebSocket notifications for events
 - [x] Add retention policy management
 - [x] Create thumbnail storage for events
-- [ ] Implement event filtering and searching
+- [ ] Implement advanced event filtering and searching
 - [x] Set up camera configuration storage
 
 ### Phase 3: Frontend Implementation (Week 4-5) ⚠️
@@ -163,17 +160,19 @@ This document outlines the implementation plan for completing the OmniSight vide
 - [x] Implement optional WebRTC fallback
 - [x] Add camera control interface
 - [x] Create multi-camera grid view
-- [x] Implement PTZ controls for compatible cameras
+- [ ] Implement PTZ controls for compatible cameras
 - [x] Add stream status indicators
 
-#### 3.3 Recording Playback ⚠️
+#### 3.3 Recording Playback ✅
 
 - [x] Implement video player with timeline
 - [x] Create recording browser with filters
 - [x] Add calendar view for date selection
 - [x] Implement thumbnail preview scrubbing
-- [ ] Create export functionality with watermark options
+- [x] Create export functionality with watermark options
 - [x] Add playback controls (speed, skip)
+- [x] Implement advanced timeline visualization with events
+- [x] Add segment navigation and event jumping
 
 #### 3.4 Event Browser ⚠️
 
@@ -181,8 +180,8 @@ This document outlines the implementation plan for completing the OmniSight vide
 - [x] Implement real-time notifications
 - [x] Add event details view with metadata
 - [x] Create thumbnail previews for events
-- [ ] Implement timeline visualization
-- [ ] Add export and sharing functionality
+- [ ] Implement timeline visualization for events
+- [x] Add export and sharing functionality
 
 #### 3.5 Settings and Configuration ✅
 
@@ -317,6 +316,31 @@ The real-time notification system now provides:
 - Notification history with read/unread status
 - Notification preferences and filtering
 
+### Advanced Timeline Controls
+
+The enhanced video player now features:
+- Interactive timeline with event markers
+- Segment boundary indicators
+- Thumbnail previews on hover
+- Zoom capabilities for precise navigation
+- Direct event jumping
+- Multi-segment navigation
+- Timeline navigation with keyboard shortcuts
+- Custom time range selection
+
+### Video Export System
+
+The video export functionality now includes:
+- Segment-based or time-range based export
+- Multiple format options (MP4, AVI, MOV)
+- Quality selection (high, medium, low)
+- Custom watermarking with text and timestamps
+- Position and opacity control for watermarks
+- Camera name and timestamp overlay options
+- Metadata export with event information
+- Background processing with progress tracking
+- Download management
+
 ### Recording Segmentation Strategy
 
 - 10-minute segments by default (configurable)
@@ -349,13 +373,13 @@ The real-time notification system now provides:
 
 1. Complete Event Browser UI
    - Implement timeline visualization for events
-   - Add export and sharing functionality
-   - Enhance filtering capabilities
+   - Add combined filtering (date range + event type)
+   - Create export for filtered results
 
-2. Finalize Recording Playback
-   - Implement advanced export functionality
-   - Add watermarking options for exported video
-   - Enhance timeline controls
+2. Live View Improvements
+   - Add PTZ camera controls for compatible cameras
+   - Create camera preset management system
+   - Implement digital zoom and focus controls
 
 3. Performance Optimization
    - Frontend bundle size optimization
