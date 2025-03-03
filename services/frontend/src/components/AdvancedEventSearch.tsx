@@ -1,604 +1,727 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Box,
-  Paper,
-  Typography,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Chip,
-  IconButton,
-  Button,
+import { 
+  Box, 
+  Card, 
+  CardContent, 
   Grid,
-  Collapse,
-  Divider,
+  Typography, 
+  TextField, 
+  Button, 
+  Chip,
+  FormControl, 
+  InputLabel, 
+  Select, 
+  MenuItem,
   Slider,
-  SelectChangeEvent,
-  Autocomplete
+  FormControlLabel,
+  Switch,
+  Autocomplete,
+  ListItem,
+  ListItemText,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  IconButton,
+  Menu,
+  Popover,
+  Tooltip,
+  Divider,
+  Paper,
+  ButtonGroup
 } from '@mui/material';
+import { 
+  DatePicker, 
+  DateTimePicker, 
+  LocalizationProvider 
+} from '@mui/x-date-pickers';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import {
   Search as SearchIcon,
-  Close as CloseIcon,
-  ExpandMore as ExpandMoreIcon,
-  ExpandLess as ExpandLessIcon,
-  FilterList as FilterListIcon,
-  Save as SaveIcon,
+  FilterList as FilterIcon,
+  SaveAlt as SaveIcon,
   Delete as DeleteIcon,
-  Download as DownloadIcon
+  Refresh as RefreshIcon,
+  Download as DownloadIcon,
+  Favorite as FavoriteIcon,
+  FavoriteBorder as FavoriteBorderIcon,
+  ContentCopy as ContentCopyIcon,
+  Share as ShareIcon,
+  MoreVert as MoreVertIcon,
+  CloudDownload as CloudDownloadIcon,
+  CameraAlt as CameraIcon,
+  Tag as TagIcon,
+  RestoreFromTrash as RestoreIcon,
+  Settings as SettingsIcon
 } from '@mui/icons-material';
-import { format, addDays, subDays, startOfDay, endOfDay } from 'date-fns';
+import axios from 'axios';
+import { useAuth } from '../contexts/AuthContext';
+import { format } from 'date-fns';
 
-interface FilterPreset {
+// Define interfaces for event-related data
+interface ObjectType {
+  id: string;
+  label: string;
+  count: number;
+}
+
+interface SavedFilter {
   id: string;
   name: string;
-  filters: EventFilters;
+  filter: EventFilter;
+  isFavorite: boolean;
+  createdAt: string;
 }
 
-interface EventFilters {
-  eventType: string;
-  cameraId: string;
-  startDate: string;
-  endDate: string;
-  minConfidence: string;
-  metadata?: {
-    objectClasses?: string[];
-    hasVehicle?: boolean;
-    hasPerson?: boolean;
-    hasAnimal?: boolean;
-    minObjects?: number;
-    maxObjects?: number;
-    objectPosition?: string;
-  };
-  [key: string]: any;
+interface EventFilter {
+  startDate: Date | null;
+  endDate: Date | null;
+  cameraIds: string[];
+  eventTypes: string[];
+  objectTypes: string[];
+  minConfidence: number;
+  metadata: Record<string, any> | null;
+  hasObjects: boolean | null;
+  timeRange: [number, number] | null;
+  tags: string[];
 }
 
-interface AdvancedEventSearchProps {
-  cameras: any[];
-  onSearch: (filters: EventFilters) => void;
-  initialFilters?: EventFilters;
-  onExport?: (format: string) => void;
+interface Camera {
+  id: string;
+  name: string;
+  location: string;
 }
 
-// Object detection classes
-const OBJECT_CLASSES = [
-  'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck', 'boat', 
-  'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench', 'bird', 'cat', 
-  'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra', 'giraffe', 'backpack', 
-  'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee', 'skis', 'snowboard', 'sports ball', 
-  'kite', 'baseball bat', 'baseball glove', 'skateboard', 'surfboard', 'tennis racket', 
-  'bottle', 'wine glass', 'cup', 'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple', 
-  'sandwich', 'orange', 'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 
-  'chair', 'couch', 'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 
-  'mouse', 'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink', 
-  'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush'
-];
+const AdvancedEventSearch: React.FC<{
+  onSearch: (filter: EventFilter) => void;
+  onExport: (filter: EventFilter, format: string) => void;
+}> = ({ onSearch, onExport }) => {
+  const { token } = useAuth();
+  const [filter, setFilter] = useState<EventFilter>({
+    startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // 7 days ago
+    endDate: new Date(),
+    cameraIds: [],
+    eventTypes: [],
+    objectTypes: [],
+    minConfidence: 60,
+    metadata: null,
+    hasObjects: null,
+    timeRange: null,
+    tags: []
+  });
 
-const defaultFilters: EventFilters = {
-  eventType: 'all',
-  cameraId: 'all',
-  startDate: '',
-  endDate: '',
-  minConfidence: '0',
-  metadata: {
-    objectClasses: [],
-    hasVehicle: false,
-    hasPerson: false,
-    hasAnimal: false,
-    minObjects: 1,
-    maxObjects: 10,
-    objectPosition: 'any'
-  }
-};
+  // State variables for UI components
+  const [availableObjectTypes, setAvailableObjectTypes] = useState<ObjectType[]>([]);
+  const [availableEventTypes, setAvailableEventTypes] = useState<string[]>([]);
+  const [cameras, setCameras] = useState<Camera[]>([]);
+  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
+  const [filterName, setFilterName] = useState<string>('');
+  const [saveFilterDialogOpen, setSaveFilterDialogOpen] = useState<boolean>(false);
+  const [exportMenuAnchorEl, setExportMenuAnchorEl] = useState<null | HTMLElement>(null);
+  const [availableTags, setAvailableTags] = useState<string[]>([]);
+  const [metadataFields, setMetadataFields] = useState<{key: string, value: string}[]>([]);
+  const [newMetadataKey, setNewMetadataKey] = useState<string>('');
+  const [newMetadataValue, setNewMetadataValue] = useState<string>('');
+  const [advancedMode, setAdvancedMode] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(false);
 
-const AdvancedEventSearch: React.FC<AdvancedEventSearchProps> = ({
-  cameras,
-  onSearch,
-  initialFilters,
-  onExport
-}) => {
-  // State
-  const [filters, setFilters] = useState<EventFilters>(initialFilters || defaultFilters);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [objectCountRange, setObjectCountRange] = useState<[number, number]>([1, 10]);
-  const [savedPresets, setSavedPresets] = useState<FilterPreset[]>([]);
-  const [presetName, setPresetName] = useState('');
-  const [showPresetSave, setShowPresetSave] = useState(false);
-
-  // Use initial filters when they change
+  // Fetch initial data on component mount
   useEffect(() => {
-    if (initialFilters) {
-      setFilters(initialFilters);
-      
-      // Update object count range if metadata exists
-      if (initialFilters.metadata) {
-        setObjectCountRange([
-          initialFilters.metadata.minObjects || 1,
-          initialFilters.metadata.maxObjects || 10
-        ]);
-      }
-    }
-  }, [initialFilters]);
-
-  // Load saved presets from localStorage
-  useEffect(() => {
-    const savedPresetsJson = localStorage.getItem('eventFilterPresets');
-    if (savedPresetsJson) {
-      try {
-        const presets = JSON.parse(savedPresetsJson);
-        setSavedPresets(presets);
-      } catch (e) {
-        console.error('Error loading saved presets:', e);
-      }
-    }
+    fetchObjectTypes();
+    fetchEventTypes();
+    fetchCameras();
+    fetchSavedFilters();
+    fetchAvailableTags();
   }, []);
 
-  // Handle basic filter changes
-  const handleTextFilterChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = event.target;
-    setFilters({
-      ...filters,
-      [name]: value
-    });
-  };
-
-  const handleSelectFilterChange = (event: SelectChangeEvent) => {
-    const { name, value } = event.target;
-    setFilters({
-      ...filters,
-      [name]: value
-    });
-  };
-
-  // Handle date changes
-  const handleDateChange = (name: string, value: string) => {
-    if (value) {
-      try {
-        // Try to parse as a date to ensure valid format
-        const date = new Date(value);
-        setFilters({
-          ...filters,
-          [name]: date.toISOString()
-        });
-      } catch (e) {
-        console.error('Invalid date format:', e);
-      }
-    } else {
-      setFilters({
-        ...filters,
-        [name]: ''
-      });
-    }
-  };
-
-  // Handle metadata changes
-  const handleMetadataChange = (name: string, value: any) => {
-    setFilters({
-      ...filters,
-      metadata: {
-        ...filters.metadata,
-        [name]: value
-      }
-    });
-  };
-
-  // Handle object count range
-  const handleObjectCountChange = (event: Event, newValue: number | number[]) => {
-    if (Array.isArray(newValue)) {
-      setObjectCountRange(newValue as [number, number]);
-      setFilters({
-        ...filters,
-        metadata: {
-          ...filters.metadata,
-          minObjects: newValue[0],
-          maxObjects: newValue[1]
-        }
-      });
-    }
-  };
-
-  // Handle search action
-  const handleSearch = () => {
-    onSearch(filters);
-  };
-
-  // Handle reset filters
-  const handleReset = () => {
-    setFilters(defaultFilters);
-    setObjectCountRange([1, 10]);
-    setShowAdvanced(false);
-  };
-
-  // Handle save preset
-  const handleSavePreset = () => {
-    if (!presetName.trim()) return;
-
-    const newPreset: FilterPreset = {
-      id: `preset-${Date.now()}`,
-      name: presetName.trim(),
-      filters: { ...filters }
-    };
-
-    const updatedPresets = [...savedPresets, newPreset];
-    setSavedPresets(updatedPresets);
-    localStorage.setItem('eventFilterPresets', JSON.stringify(updatedPresets));
-    setPresetName('');
-    setShowPresetSave(false);
-  };
-
-  // Handle load preset
-  const handleLoadPreset = (preset: FilterPreset) => {
-    setFilters({ ...preset.filters });
-    if (preset.filters.metadata) {
-      setObjectCountRange([
-        preset.filters.metadata.minObjects || 1,
-        preset.filters.metadata.maxObjects || 10
-      ]);
-    }
-  };
-
-  // Handle delete preset
-  const handleDeletePreset = (presetId: string) => {
-    const updatedPresets = savedPresets.filter(preset => preset.id !== presetId);
-    setSavedPresets(updatedPresets);
-    localStorage.setItem('eventFilterPresets', JSON.stringify(updatedPresets));
-  };
-
-  // Handle quick date filters
-  const handleQuickDateFilter = (days: number) => {
-    const now = new Date();
-    const startDate = subDays(now, days);
-    
-    setFilters({
-      ...filters,
-      startDate: startDate.toISOString(),
-      endDate: now.toISOString()
-    });
-  };
-
-  // Handle export
-  const handleExport = (format: string) => {
-    if (onExport) {
-      onExport(format);
-    }
-  };
-
-  // Format date for display (from ISO to yyyy-MM-ddTHH:mm)
-  const formatDateForInput = (isoDate: string): string => {
-    if (!isoDate) return '';
+  // API calls
+  const fetchObjectTypes = async () => {
     try {
-      const date = new Date(isoDate);
-      return format(date, "yyyy-MM-dd'T'HH:mm");
-    } catch (e) {
-      return '';
+      const response = await axios.get('/api/events/object-types', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setAvailableObjectTypes(response.data);
+    } catch (error) {
+      console.error('Error fetching object types:', error);
     }
+  };
+
+  const fetchEventTypes = async () => {
+    try {
+      const response = await axios.get('/api/events/event-types', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setAvailableEventTypes(response.data);
+    } catch (error) {
+      console.error('Error fetching event types:', error);
+    }
+  };
+
+  const fetchCameras = async () => {
+    try {
+      const response = await axios.get('/api/cameras', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setCameras(response.data);
+    } catch (error) {
+      console.error('Error fetching cameras:', error);
+    }
+  };
+
+  const fetchSavedFilters = async () => {
+    try {
+      const response = await axios.get('/api/user/saved-filters', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSavedFilters(response.data);
+    } catch (error) {
+      console.error('Error fetching saved filters:', error);
+    }
+  };
+
+  const fetchAvailableTags = async () => {
+    try {
+      const response = await axios.get('/api/events/tags', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setAvailableTags(response.data);
+    } catch (error) {
+      console.error('Error fetching available tags:', error);
+    }
+  };
+
+  const saveFilter = async () => {
+    if (!filterName.trim()) return;
+    
+    try {
+      setLoading(true);
+      
+      const response = await axios.post('/api/user/saved-filters', {
+        name: filterName,
+        filter,
+        isFavorite: false
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      setSavedFilters([...savedFilters, response.data]);
+      setFilterName('');
+      setSaveFilterDialogOpen(false);
+    } catch (error) {
+      console.error('Error saving filter:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const deleteFilter = async (id: string) => {
+    try {
+      await axios.delete(`/api/user/saved-filters/${id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      setSavedFilters(savedFilters.filter(f => f.id !== id));
+    } catch (error) {
+      console.error('Error deleting filter:', error);
+    }
+  };
+
+  const toggleFavorite = async (id: string) => {
+    try {
+      const filterToUpdate = savedFilters.find(f => f.id === id);
+      if (!filterToUpdate) return;
+      
+      const response = await axios.patch(`/api/user/saved-filters/${id}`, {
+        isFavorite: !filterToUpdate.isFavorite
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      setSavedFilters(savedFilters.map(f => f.id === id ? response.data : f));
+    } catch (error) {
+      console.error('Error toggling favorite:', error);
+    }
+  };
+
+  // Event handlers
+  const handleSearch = () => {
+    setLoading(true);
+    onSearch(filter);
+    setTimeout(() => setLoading(false), 500); // Simulated loading for better UX
+  };
+
+  const handleExport = (format: string) => {
+    setExportMenuAnchorEl(null);
+    onExport(filter, format);
+  };
+
+  const handleFilterChange = (key: keyof EventFilter, value: any) => {
+    setFilter({
+      ...filter,
+      [key]: value
+    });
+  };
+
+  const handleLoadFilter = (savedFilter: SavedFilter) => {
+    setFilter(savedFilter.filter);
+  };
+
+  const handleAddMetadataField = () => {
+    if (!newMetadataKey.trim()) return;
+    
+    setMetadataFields([...metadataFields, { key: newMetadataKey, value: newMetadataValue }]);
+    setNewMetadataKey('');
+    setNewMetadataValue('');
+    
+    // Update the filter metadata
+    const updatedMetadata = { ...(filter.metadata || {}) };
+    updatedMetadata[newMetadataKey] = newMetadataValue;
+    
+    handleFilterChange('metadata', updatedMetadata);
+  };
+
+  const handleRemoveMetadataField = (index: number) => {
+    const field = metadataFields[index];
+    const updatedFields = [...metadataFields];
+    updatedFields.splice(index, 1);
+    setMetadataFields(updatedFields);
+    
+    // Update the filter metadata
+    const updatedMetadata = { ...(filter.metadata || {}) };
+    delete updatedMetadata[field.key];
+    
+    handleFilterChange('metadata', Object.keys(updatedMetadata).length > 0 ? updatedMetadata : null);
+  };
+
+  const handleResetFilter = () => {
+    setFilter({
+      startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // 7 days ago
+      endDate: new Date(),
+      cameraIds: [],
+      eventTypes: [],
+      objectTypes: [],
+      minConfidence: 60,
+      metadata: null,
+      hasObjects: null,
+      timeRange: null,
+      tags: []
+    });
+    setMetadataFields([]);
   };
 
   return (
-    <Paper sx={{ p: 2, mb: 3 }}>
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-        <FilterListIcon sx={{ mr: 1 }} />
-        <Typography variant="h6">Event Search</Typography>
-      </Box>
-
-      <Grid container spacing={2}>
-        {/* Basic filters */}
-        <Grid item xs={12} md={3}>
-          <FormControl fullWidth>
-            <InputLabel id="event-type-select-label">Event Type</InputLabel>
-            <Select
-              labelId="event-type-select-label"
-              id="event-type-select"
-              name="eventType"
-              value={filters.eventType}
-              onChange={handleSelectFilterChange}
-              label="Event Type"
-            >
-              <MenuItem value="all">All Types</MenuItem>
-              <MenuItem value="motion">Motion</MenuItem>
-              <MenuItem value="person">Person</MenuItem>
-              <MenuItem value="vehicle">Vehicle</MenuItem>
-              <MenuItem value="animal">Animal</MenuItem>
-            </Select>
-          </FormControl>
-        </Grid>
-
-        <Grid item xs={12} md={3}>
-          <FormControl fullWidth>
-            <InputLabel id="camera-select-label">Camera</InputLabel>
-            <Select
-              labelId="camera-select-label"
-              id="camera-select"
-              name="cameraId"
-              value={filters.cameraId}
-              onChange={handleSelectFilterChange}
-              label="Camera"
-            >
-              <MenuItem value="all">All Cameras</MenuItem>
-              {cameras.map(camera => (
-                <MenuItem key={camera.id} value={camera.id}>
-                  {camera.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Grid>
-
-        <Grid item xs={12} md={3}>
-          <TextField
-            fullWidth
-            label="Start Date"
-            type="datetime-local"
-            value={formatDateForInput(filters.startDate)}
-            onChange={(e) => handleDateChange('startDate', e.target.value)}
-            InputLabelProps={{
-              shrink: true,
-            }}
-          />
-        </Grid>
-
-        <Grid item xs={12} md={3}>
-          <TextField
-            fullWidth
-            label="End Date"
-            type="datetime-local"
-            value={formatDateForInput(filters.endDate)}
-            onChange={(e) => handleDateChange('endDate', e.target.value)}
-            InputLabelProps={{
-              shrink: true,
-            }}
-          />
-        </Grid>
-      </Grid>
-
-      <Box sx={{ mt: 2, display: 'flex', flexWrap: 'wrap' }}>
-        <Button 
-          variant="outlined" 
-          size="small" 
-          onClick={() => handleQuickDateFilter(1)}
-          sx={{ mr: 1, mb: 1 }}
-        >
-          Today
-        </Button>
-        <Button 
-          variant="outlined" 
-          size="small" 
-          onClick={() => handleQuickDateFilter(7)}
-          sx={{ mr: 1, mb: 1 }}
-        >
-          Last 7 Days
-        </Button>
-        <Button 
-          variant="outlined" 
-          size="small" 
-          onClick={() => handleQuickDateFilter(30)}
-          sx={{ mr: 1, mb: 1 }}
-        >
-          Last 30 Days
-        </Button>
-      </Box>
-
-      <Box 
-        sx={{ 
-          mt: 2, 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center' 
-        }}
-      >
-        <Button
-          variant="text"
-          color="primary"
-          onClick={() => setShowAdvanced(!showAdvanced)}
-          startIcon={showAdvanced ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-        >
-          {showAdvanced ? 'Hide Advanced Filters' : 'Show Advanced Filters'}
-        </Button>
-
-        {savedPresets.length > 0 && (
-          <FormControl sx={{ minWidth: 200 }}>
-            <InputLabel id="preset-select-label">Saved Searches</InputLabel>
-            <Select
-              labelId="preset-select-label"
-              id="preset-select"
-              label="Saved Searches"
-              value=""
-              onChange={(e) => {
-                const presetId = e.target.value;
-                const preset = savedPresets.find(p => p.id === presetId);
-                if (preset) handleLoadPreset(preset);
-              }}
-              displayEmpty
-            >
-              <MenuItem value="" disabled>
-                <em>Select a saved search</em>
-              </MenuItem>
-              {savedPresets.map(preset => (
-                <MenuItem key={preset.id} value={preset.id} sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>{preset.name}</span>
-                  <IconButton 
-                    size="small" 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeletePreset(preset.id);
-                    }}
-                    sx={{ ml: 1 }}
-                  >
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        )}
-      </Box>
-
-      {/* Advanced filters */}
-      <Collapse in={showAdvanced}>
-        <Box sx={{ mt: 3, mb: 2 }}>
-          <Divider>
-            <Chip label="Advanced Filters" />
-          </Divider>
-        </Box>
-
-        <Grid container spacing={2}>
-          <Grid item xs={12} md={6}>
-            <FormControl fullWidth>
-              <InputLabel id="confidence-select-label">Minimum Confidence</InputLabel>
-              <Select
-                labelId="confidence-select-label"
-                id="confidence-select"
-                name="minConfidence"
-                value={filters.minConfidence}
-                onChange={handleSelectFilterChange}
-                label="Minimum Confidence"
-              >
-                <MenuItem value="0">Any</MenuItem>
-                <MenuItem value="0.5">50%</MenuItem>
-                <MenuItem value="0.7">70%</MenuItem>
-                <MenuItem value="0.9">90%</MenuItem>
-              </Select>
-            </FormControl>
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <Autocomplete
-              multiple
-              id="object-classes"
-              options={OBJECT_CLASSES}
-              value={filters.metadata?.objectClasses || []}
-              onChange={(_, newValue) => handleMetadataChange('objectClasses', newValue)}
-              renderInput={(params) => (
-                <TextField {...params} label="Object Classes" placeholder="Select objects" />
-              )}
-              renderTags={(value, getTagProps) =>
-                value.map((option, index) => (
-                  <Chip
-                    label={option}
-                    {...getTagProps({ index })}
-                    size="small"
-                  />
-                ))
-              }
-            />
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <Typography id="object-count-slider" gutterBottom>
-              Number of Objects: {objectCountRange[0]} - {objectCountRange[1]}
+    <LocalizationProvider dateAdapter={AdapterDateFns}>
+      <Card>
+        <CardContent>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h6" component="div">
+              <FilterIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
+              Advanced Event Search
             </Typography>
-            <Slider
-              getAriaLabel={() => 'Object count range'}
-              value={objectCountRange}
-              onChange={handleObjectCountChange}
-              valueLabelDisplay="auto"
-              min={1}
-              max={20}
-              step={1}
-              marks={[
-                { value: 1, label: '1' },
-                { value: 5, label: '5' },
-                { value: 10, label: '10' },
-                { value: 15, label: '15' },
-                { value: 20, label: '20' }
-              ]}
-            />
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <FormControl fullWidth>
-              <InputLabel id="object-position-label">Object Position</InputLabel>
-              <Select
-                labelId="object-position-label"
-                id="object-position"
-                value={filters.metadata?.objectPosition || 'any'}
-                onChange={(e) => handleMetadataChange('objectPosition', e.target.value)}
-                label="Object Position"
-              >
-                <MenuItem value="any">Any Position</MenuItem>
-                <MenuItem value="center">Center</MenuItem>
-                <MenuItem value="top">Top</MenuItem>
-                <MenuItem value="bottom">Bottom</MenuItem>
-                <MenuItem value="left">Left</MenuItem>
-                <MenuItem value="right">Right</MenuItem>
-              </Select>
-            </FormControl>
-          </Grid>
-        </Grid>
-      </Collapse>
-
-      {/* Action buttons */}
-      <Box sx={{ mt: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Box>
-          <Button
-            variant="contained"
-            color="primary"
-            startIcon={<SearchIcon />}
-            onClick={handleSearch}
-            sx={{ mr: 1 }}
-          >
-            Search
-          </Button>
-          <Button
-            variant="outlined"
-            color="secondary"
-            onClick={handleReset}
-          >
-            Reset
-          </Button>
-        </Box>
-
-        <Box>
-          {showPresetSave ? (
-            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-              <TextField
-                size="small"
-                label="Save as"
-                value={presetName}
-                onChange={(e) => setPresetName(e.target.value)}
-                sx={{ mr: 1 }}
+            <Box>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={advancedMode}
+                    onChange={(e) => setAdvancedMode(e.target.checked)}
+                    color="primary"
+                  />
+                }
+                label="Advanced Mode"
               />
-              <Button
-                size="small"
-                variant="contained"
-                color="primary"
-                startIcon={<SaveIcon />}
-                onClick={handleSavePreset}
-                disabled={!presetName.trim()}
-              >
-                Save
-              </Button>
-              <IconButton size="small" onClick={() => setShowPresetSave(false)} sx={{ ml: 1 }}>
-                <CloseIcon />
-              </IconButton>
             </Box>
-          ) : (
+          </Box>
+          
+          <Grid container spacing={2}>
+            {/* Date range filter */}
+            <Grid item xs={12} md={6}>
+              <Typography variant="subtitle2" gutterBottom>
+                Date Range
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 2 }}>
+                <DateTimePicker
+                  label="From"
+                  value={filter.startDate}
+                  onChange={(date) => handleFilterChange('startDate', date)}
+                  slotProps={{ textField: { fullWidth: true, size: 'small' } }}
+                />
+                <DateTimePicker
+                  label="To"
+                  value={filter.endDate}
+                  onChange={(date) => handleFilterChange('endDate', date)}
+                  slotProps={{ textField: { fullWidth: true, size: 'small' } }}
+                />
+              </Box>
+            </Grid>
+            
+            {/* Event type filter */}
+            <Grid item xs={12} md={6}>
+              <Typography variant="subtitle2" gutterBottom>
+                Event Types
+              </Typography>
+              <FormControl fullWidth size="small">
+                <Autocomplete
+                  multiple
+                  options={availableEventTypes}
+                  renderInput={(params) => <TextField {...params} label="Select Event Types" />}
+                  value={filter.eventTypes}
+                  onChange={(_, newValue) => handleFilterChange('eventTypes', newValue)}
+                  renderTags={(value, getTagProps) =>
+                    value.map((option, index) => (
+                      <Chip
+                        variant="outlined"
+                        label={option}
+                        {...getTagProps({ index })}
+                        size="small"
+                      />
+                    ))
+                  }
+                />
+              </FormControl>
+            </Grid>
+            
+            {/* Camera filter */}
+            <Grid item xs={12} md={6}>
+              <Typography variant="subtitle2" gutterBottom>
+                Cameras
+              </Typography>
+              <FormControl fullWidth size="small">
+                <Autocomplete
+                  multiple
+                  options={cameras}
+                  getOptionLabel={(option) => option.name}
+                  renderInput={(params) => <TextField {...params} label="Select Cameras" />}
+                  value={cameras.filter(c => filter.cameraIds.includes(c.id))}
+                  onChange={(_, newValue) => handleFilterChange('cameraIds', newValue.map(c => c.id))}
+                  renderTags={(value, getTagProps) =>
+                    value.map((option, index) => (
+                      <Chip
+                        variant="outlined"
+                        label={option.name}
+                        {...getTagProps({ index })}
+                        size="small"
+                      />
+                    ))
+                  }
+                />
+              </FormControl>
+            </Grid>
+            
+            {/* Object type filter */}
+            <Grid item xs={12} md={6}>
+              <Typography variant="subtitle2" gutterBottom>
+                Object Types
+              </Typography>
+              <FormControl fullWidth size="small">
+                <Autocomplete
+                  multiple
+                  options={availableObjectTypes}
+                  getOptionLabel={(option) => `${option.label} (${option.count})`}
+                  renderInput={(params) => <TextField {...params} label="Select Object Types" />}
+                  value={availableObjectTypes.filter(o => filter.objectTypes.includes(o.id))}
+                  onChange={(_, newValue) => handleFilterChange('objectTypes', newValue.map(o => o.id))}
+                  renderTags={(value, getTagProps) =>
+                    value.map((option, index) => (
+                      <Chip
+                        variant="outlined"
+                        label={option.label}
+                        {...getTagProps({ index })}
+                        size="small"
+                      />
+                    ))
+                  }
+                />
+              </FormControl>
+            </Grid>
+            
+            {/* Confidence threshold */}
+            <Grid item xs={12} md={6}>
+              <Typography variant="subtitle2" gutterBottom>
+                Minimum Confidence ({filter.minConfidence}%)
+              </Typography>
+              <Slider
+                value={filter.minConfidence}
+                onChange={(_, newValue) => handleFilterChange('minConfidence', newValue)}
+                aria-labelledby="confidence-slider"
+                valueLabelDisplay="auto"
+                step={5}
+                marks
+                min={0}
+                max={100}
+              />
+            </Grid>
+            
+            {/* Tags filter */}
+            <Grid item xs={12} md={6}>
+              <Typography variant="subtitle2" gutterBottom>
+                Tags
+              </Typography>
+              <FormControl fullWidth size="small">
+                <Autocomplete
+                  multiple
+                  freeSolo
+                  options={availableTags}
+                  renderInput={(params) => <TextField {...params} label="Select or Create Tags" />}
+                  value={filter.tags}
+                  onChange={(_, newValue) => handleFilterChange('tags', newValue)}
+                  renderTags={(value, getTagProps) =>
+                    value.map((option, index) => (
+                      <Chip
+                        variant="outlined"
+                        label={option}
+                        {...getTagProps({ index })}
+                        size="small"
+                      />
+                    ))
+                  }
+                />
+              </FormControl>
+            </Grid>
+            
+            {/* Advanced filters (conditionally rendered) */}
+            {advancedMode && (
+              <>
+                <Grid item xs={12}>
+                  <Divider>
+                    <Chip label="Advanced Filters" />
+                  </Divider>
+                </Grid>
+                
+                {/* Metadata search */}
+                <Grid item xs={12}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    Metadata Search
+                  </Typography>
+                  <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+                    <Grid container spacing={2} alignItems="center">
+                      <Grid item xs={5}>
+                        <TextField
+                          label="Key"
+                          value={newMetadataKey}
+                          onChange={(e) => setNewMetadataKey(e.target.value)}
+                          fullWidth
+                          size="small"
+                        />
+                      </Grid>
+                      <Grid item xs={5}>
+                        <TextField
+                          label="Value"
+                          value={newMetadataValue}
+                          onChange={(e) => setNewMetadataValue(e.target.value)}
+                          fullWidth
+                          size="small"
+                        />
+                      </Grid>
+                      <Grid item xs={2}>
+                        <Button
+                          variant="outlined"
+                          onClick={handleAddMetadataField}
+                          disabled={!newMetadataKey.trim()}
+                          fullWidth
+                        >
+                          Add
+                        </Button>
+                      </Grid>
+                    </Grid>
+                    
+                    {metadataFields.length > 0 && (
+                      <Box sx={{ mt: 2 }}>
+                        <Typography variant="caption" color="text.secondary">
+                          Applied Metadata Filters:
+                        </Typography>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
+                          {metadataFields.map((field, index) => (
+                            <Chip
+                              key={index}
+                              label={`${field.key}: ${field.value}`}
+                              onDelete={() => handleRemoveMetadataField(index)}
+                              size="small"
+                              variant="outlined"
+                            />
+                          ))}
+                        </Box>
+                      </Box>
+                    )}
+                  </Paper>
+                </Grid>
+                
+                {/* Time range filter */}
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    Time of Day Filter
+                  </Typography>
+                  <FormControlLabel
+                    control={
+                      <Switch
+                        checked={filter.timeRange !== null}
+                        onChange={(e) => handleFilterChange('timeRange', e.target.checked ? [0, 24] : null)}
+                        color="primary"
+                      />
+                    }
+                    label="Filter by time of day"
+                  />
+                  
+                  {filter.timeRange && (
+                    <Box sx={{ px: 2, mt: 2 }}>
+                      <Slider
+                        value={filter.timeRange}
+                        onChange={(_, newValue) => handleFilterChange('timeRange', newValue)}
+                        valueLabelDisplay="auto"
+                        valueLabelFormat={(value) => `${value}:00`}
+                        step={1}
+                        marks
+                        min={0}
+                        max={24}
+                      />
+                      <Typography variant="caption" color="text.secondary">
+                        {`${filter.timeRange[0]}:00 - ${filter.timeRange[1]}:00`}
+                      </Typography>
+                    </Box>
+                  )}
+                </Grid>
+                
+                {/* Object presence filter */}
+                <Grid item xs={12} md={6}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    Object Presence
+                  </Typography>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Object Detection</InputLabel>
+                    <Select
+                      value={filter.hasObjects === null ? '' : filter.hasObjects ? 'with' : 'without'}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        handleFilterChange('hasObjects', value === '' ? null : value === 'with');
+                      }}
+                      label="Object Detection"
+                    >
+                      <MenuItem value="">Any</MenuItem>
+                      <MenuItem value="with">With detected objects</MenuItem>
+                      <MenuItem value="without">Without detected objects</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+              </>
+            )}
+          </Grid>
+          
+          {/* Filter actions */}
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 3 }}>
             <Box>
               <Button
-                size="small"
                 variant="outlined"
-                startIcon={<SaveIcon />}
-                onClick={() => setShowPresetSave(true)}
+                color="secondary"
+                startIcon={<RefreshIcon />}
+                onClick={handleResetFilter}
                 sx={{ mr: 1 }}
               >
-                Save Search
+                Reset
               </Button>
-              {onExport && (
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<DownloadIcon />}
-                  onClick={() => handleExport('csv')}
-                >
-                  Export Results
-                </Button>
-              )}
+              <Button
+                variant="outlined"
+                startIcon={<SaveIcon />}
+                onClick={() => setSaveFilterDialogOpen(true)}
+              >
+                Save Filter
+              </Button>
+            </Box>
+            
+            <Box>
+              <Button
+                variant="outlined"
+                color="primary"
+                startIcon={<CloudDownloadIcon />}
+                onClick={(e) => setExportMenuAnchorEl(e.currentTarget)}
+                sx={{ mr: 1 }}
+              >
+                Export
+              </Button>
+              <Button
+                variant="contained"
+                color="primary"
+                startIcon={<SearchIcon />}
+                onClick={handleSearch}
+                disabled={loading}
+              >
+                Search
+              </Button>
+            </Box>
+          </Box>
+          
+          {/* Saved filters section */}
+          {savedFilters.length > 0 && (
+            <Box sx={{ mt: 3 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Saved Filters
+              </Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                {savedFilters.map((savedFilter) => (
+                  <Chip
+                    key={savedFilter.id}
+                    label={savedFilter.name}
+                    onClick={() => handleLoadFilter(savedFilter)}
+                    onDelete={() => deleteFilter(savedFilter.id)}
+                    icon={
+                      savedFilter.isFavorite ? 
+                      <FavoriteIcon color="error" fontSize="small" /> : 
+                      <FavoriteBorderIcon fontSize="small" onClick={(e) => {
+                        e.stopPropagation();
+                        toggleFavorite(savedFilter.id);
+                      }} />
+                    }
+                    variant="outlined"
+                    color={savedFilter.isFavorite ? "primary" : "default"}
+                  />
+                ))}
+              </Box>
             </Box>
           )}
-        </Box>
-      </Box>
-    </Paper>
+        </CardContent>
+      </Card>
+      
+      {/* Save filter dialog */}
+      <Dialog open={saveFilterDialogOpen} onClose={() => setSaveFilterDialogOpen(false)}>
+        <DialogTitle>Save Search Filter</DialogTitle>
+        <DialogContent>
+          <TextField
+            autoFocus
+            margin="dense"
+            label="Filter Name"
+            type="text"
+            fullWidth
+            variant="outlined"
+            value={filterName}
+            onChange={(e) => setFilterName(e.target.value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSaveFilterDialogOpen(false)}>Cancel</Button>
+          <Button onClick={saveFilter} color="primary" disabled={!filterName.trim() || loading}>
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+      
+      {/* Export menu */}
+      <Menu
+        anchorEl={exportMenuAnchorEl}
+        open={Boolean(exportMenuAnchorEl)}
+        onClose={() => setExportMenuAnchorEl(null)}
+      >
+        <MenuItem onClick={() => handleExport('csv')}>
+          <Typography variant="body2">CSV (.csv)</Typography>
+        </MenuItem>
+        <MenuItem onClick={() => handleExport('json')}>
+          <Typography variant="body2">JSON (.json)</Typography>
+        </MenuItem>
+        <MenuItem onClick={() => handleExport('pdf')}>
+          <Typography variant="body2">PDF Report (.pdf)</Typography>
+        </MenuItem>
+        <MenuItem onClick={() => handleExport('xlsx')}>
+          <Typography variant="body2">Excel (.xlsx)</Typography>
+        </MenuItem>
+      </Menu>
+    </LocalizationProvider>
   );
 };
 

@@ -1,749 +1,450 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
+  Grid,
+  Card,
+  CardContent,
+  Tabs,
+  Tab,
+  CircularProgress,
   Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TablePagination,
+  Divider,
   Button,
   IconButton,
-  Chip,
   Dialog,
-  DialogTitle,
-  DialogContent,
-  DialogActions,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  CircularProgress,
-  Card,
-  CardMedia,
-  CardContent,
-  Grid,
-  SelectChangeEvent,
-  Alert,
-  Tabs,
-  Tab
+  Chip
 } from '@mui/material';
-import {
-  Visibility as VisibilityIcon,
-  FilterList as FilterListIcon,
-  Person as PersonIcon,
-  DirectionsCar as DirectionsCarIcon,
-  Pets as PetsIcon,
-  NotificationsActive as NotificationsActiveIcon,
+import { 
+  Refresh as RefreshIcon,
   Download as DownloadIcon,
+  FilterList as FilterIcon,
+  ViewList as ViewListIcon,
   Timeline as TimelineIcon,
-  List as ListIcon,
-  GridView as GridViewIcon
+  GridView as GridViewIcon,
+  Map as MapIcon,
+  ZoomIn as ZoomInIcon
 } from '@mui/icons-material';
+import axios from 'axios';
 import { useAuth } from '../contexts/AuthContext';
+import EventList from '../components/EventList';
 import EventTimeline from '../components/EventTimeline';
+import EventMap from '../components/EventMap';
+import EventGrid from '../components/EventGrid';
+import EventDetails from '../components/EventDetails';
 import AdvancedEventSearch from '../components/AdvancedEventSearch';
 import { format } from 'date-fns';
 
-// Mock data for initial development
-const mockEvents = [
-  { id: '1', type: 'motion', cameraName: 'Front Door', timestamp: '2023-01-01T12:00:00Z', confidence: 0.85, thumbnail: 'https://via.placeholder.com/300x200?text=Motion+Event' },
-  { id: '2', type: 'person', cameraName: 'Backyard', timestamp: '2023-01-01T12:05:00Z', confidence: 0.92, thumbnail: 'https://via.placeholder.com/300x200?text=Person+Event' },
-  { id: '3', type: 'vehicle', cameraName: 'Driveway', timestamp: '2023-01-01T12:10:00Z', confidence: 0.88, thumbnail: 'https://via.placeholder.com/300x200?text=Vehicle+Event' },
-  { id: '4', type: 'motion', cameraName: 'Living Room', timestamp: '2023-01-01T12:15:00Z', confidence: 0.75, thumbnail: 'https://via.placeholder.com/300x200?text=Motion+Event' },
-  { id: '5', type: 'person', cameraName: 'Front Door', timestamp: '2023-01-01T12:20:00Z', confidence: 0.95, thumbnail: 'https://via.placeholder.com/300x200?text=Person+Event' },
-  { id: '6', type: 'animal', cameraName: 'Backyard', timestamp: '2023-01-01T12:25:00Z', confidence: 0.82, thumbnail: 'https://via.placeholder.com/300x200?text=Animal+Event' },
-  { id: '7', type: 'vehicle', cameraName: 'Driveway', timestamp: '2023-01-01T12:30:00Z', confidence: 0.91, thumbnail: 'https://via.placeholder.com/300x200?text=Vehicle+Event' },
-  { id: '8', type: 'motion', cameraName: 'Garage', timestamp: '2023-01-01T12:35:00Z', confidence: 0.78, thumbnail: 'https://via.placeholder.com/300x200?text=Motion+Event' }
-];
-
-interface TabPanelProps {
-  children?: React.ReactNode;
-  index: number;
-  value: number;
-}
-
-// Interface for filters
-interface EventFilters {
-  eventType: string;
-  cameraId: string;
-  startDate: string;
-  endDate: string;
-  minConfidence: string;
-  metadata?: {
-    objectClasses?: string[];
-    hasVehicle?: boolean;
-    hasPerson?: boolean;
-    hasAnimal?: boolean;
-    minObjects?: number;
-    maxObjects?: number;
-    objectPosition?: string;
+// Interfaces for event data
+interface Event {
+  id: string;
+  timestamp: string;
+  type: string;
+  camera?: {
+    id: string;
+    name: string;
   };
-  [key: string]: any;
+  recording?: {
+    id: string;
+    startTime: string;
+    endTime: string;
+  };
+  thumbnailPath?: string;
+  detectedObjects?: DetectedObject[];
+  confidence: number;
 }
 
-function TabPanel(props: TabPanelProps) {
-  const { children, value, index, ...other } = props;
+interface DetectedObject {
+  id: string;
+  type: string;
+  confidence: number;
+  boundingBox: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+}
 
-  return (
-    <div
-      role="tabpanel"
-      hidden={value !== index}
-      id={`events-tabpanel-${index}`}
-      aria-labelledby={`events-tab-${index}`}
-      {...other}
-    >
-      {value === index && (
-        <Box sx={{ py: 3 }}>
-          {children}
-        </Box>
-      )}
-    </div>
-  );
+interface EventFilter {
+  startDate: Date | null;
+  endDate: Date | null;
+  cameraIds: string[];
+  eventTypes: string[];
+  objectTypes: string[];
+  minConfidence: number;
+  metadata: Record<string, any> | null;
+  hasObjects: boolean | null;
+  timeRange: [number, number] | null;
+  tags: string[];
 }
 
 const Events: React.FC = () => {
-  // State
-  const [events, setEvents] = useState<any[]>([]);
-  const [cameras, setCameras] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(8);
-  const [totalCount, setTotalCount] = useState(0);
-  const [openFilterDialog, setOpenFilterDialog] = useState(false);
-  const [selectedEvent, setSelectedEvent] = useState<any>(null);
-  const [openEventDialog, setOpenEventDialog] = useState(false);
-  const [viewMode, setViewMode] = useState<'table' | 'grid'>('grid');
-  const [tabValue, setTabValue] = useState(0);
-  const [exportLoading, setExportLoading] = useState(false);
-  
-  // Filter state
-  const [filters, setFilters] = useState<EventFilters>({
-    eventType: 'all',
-    cameraId: 'all',
-    startDate: '',
-    endDate: '',
-    minConfidence: '0',
-    metadata: {
-      objectClasses: [],
-      hasVehicle: false,
-      hasPerson: false,
-      hasAnimal: false,
-      minObjects: 1,
-      maxObjects: 10,
-      objectPosition: 'any'
-    }
-  });
-  
   const { token } = useAuth();
-  
-  // API URL from environment variable
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1';
+  const [events, setEvents] = useState<Event[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<number>(0);
+  const [showFilters, setShowFilters] = useState<boolean>(false);
+  const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState<boolean>(false);
+  const [totalEvents, setTotalEvents] = useState<number>(0);
+  const [page, setPage] = useState<number>(1);
+  const [filters, setFilters] = useState<EventFilter>({
+    startDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // 7 days ago
+    endDate: new Date(),
+    cameraIds: [],
+    eventTypes: [],
+    objectTypes: [],
+    minConfidence: 60,
+    metadata: null,
+    hasObjects: null,
+    timeRange: null,
+    tags: []
+  });
 
-  // Fetch cameras for filter dropdown
+  // Fetch events on component mount or when filters change
   useEffect(() => {
-    const fetchCameras = async () => {
-      if (!token) return;
-      
-      try {
-        const response = await axios.get(`${API_URL}/cameras`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        
-        setCameras(response.data.cameras || []);
-      } catch (error) {
-        console.error('Error fetching cameras:', error);
-        // Use mock data in development
-        if (process.env.NODE_ENV === 'development') {
-          setCameras([
-            { id: '1', name: 'Front Door' },
-            { id: '2', name: 'Backyard' },
-            { id: '3', name: 'Garage' },
-            { id: '4', name: 'Living Room' }
-          ]);
-        }
-      }
-    };
-    
-    fetchCameras();
-  }, [token, API_URL]);
-  
-  // Fetch events with filters
-  const fetchEvents = useCallback(async () => {
-    if (!token) return;
-    
-    setLoading(true);
-    setError(null);
-    
+    fetchEvents();
+  }, [page, filters]);
+
+  const fetchEvents = async () => {
     try {
-      // Build query parameters
-      const params: any = {
-        page: page + 1, // API uses 1-based indexing
-        limit: rowsPerPage
-      };
-      
-      if (filters.eventType !== 'all') {
-        params.type = filters.eventType;
-      }
-      
-      if (filters.cameraId !== 'all') {
-        params.cameraId = filters.cameraId;
-      }
+      setLoading(true);
+      setError(null);
+
+      // Build query parameters based on filters
+      const params = new URLSearchParams();
+      params.append('page', page.toString());
+      params.append('limit', '50');
       
       if (filters.startDate) {
-        params.startDate = new Date(filters.startDate).toISOString();
+        params.append('startTime', filters.startDate.toISOString());
       }
       
       if (filters.endDate) {
-        params.endDate = new Date(filters.endDate).toISOString();
+        params.append('endTime', filters.endDate.toISOString());
       }
       
-      if (parseFloat(filters.minConfidence) > 0) {
-        params.minConfidence = parseFloat(filters.minConfidence);
+      if (filters.cameraIds.length > 0) {
+        filters.cameraIds.forEach(id => params.append('cameraIds', id));
+      }
+      
+      if (filters.eventTypes.length > 0) {
+        filters.eventTypes.forEach(type => params.append('eventTypes', type));
+      }
+      
+      if (filters.objectTypes.length > 0) {
+        filters.objectTypes.forEach(type => params.append('objectTypes', type));
+      }
+      
+      if (filters.minConfidence > 0) {
+        params.append('minConfidence', filters.minConfidence.toString());
+      }
+      
+      if (filters.hasObjects !== null) {
+        params.append('hasObjects', filters.hasObjects.toString());
+      }
+      
+      if (filters.timeRange !== null) {
+        params.append('timeRangeStart', filters.timeRange[0].toString());
+        params.append('timeRangeEnd', filters.timeRange[1].toString());
+      }
+      
+      if (filters.tags.length > 0) {
+        filters.tags.forEach(tag => params.append('tags', tag));
+      }
+      
+      if (filters.metadata) {
+        params.append('metadata', JSON.stringify(filters.metadata));
       }
 
-      // Add metadata filters if they exist
-      if (filters.metadata) {
-        if (filters.metadata.objectClasses && filters.metadata.objectClasses.length > 0) {
-          params.objectClasses = filters.metadata.objectClasses.join(',');
-        }
-        
-        if (filters.metadata.minObjects) {
-          params.minObjects = filters.metadata.minObjects;
-        }
-        
-        if (filters.metadata.maxObjects) {
-          params.maxObjects = filters.metadata.maxObjects;
-        }
-        
-        if (filters.metadata.objectPosition && filters.metadata.objectPosition !== 'any') {
-          params.objectPosition = filters.metadata.objectPosition;
-        }
-      }
-      
-      const response = await axios.get(`${API_URL}/events`, {
-        headers: { Authorization: `Bearer ${token}` },
-        params
+      // Make the API request
+      const response = await axios.get(`/api/events?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` }
       });
-      
-      setEvents(response.data.events || []);
-      setTotalCount(response.data.totalCount || response.data.events?.length || 0);
-    } catch (error) {
-      console.error('Error fetching events:', error);
+
+      setEvents(response.data.events);
+      setTotalEvents(response.data.pagination.total);
+    } catch (err) {
+      console.error('Error fetching events:', err);
       setError('Failed to load events. Please try again.');
-      
-      // Use mock data in development
-      if (process.env.NODE_ENV === 'development') {
-        setEvents(mockEvents);
-        setTotalCount(mockEvents.length);
-      }
     } finally {
       setLoading(false);
     }
-  }, [token, API_URL, page, rowsPerPage, filters]);
-  
-  // Fetch events when dependencies change
-  useEffect(() => {
-    fetchEvents();
-  }, [fetchEvents]);
-
-  const handleChangePage = (event: unknown, newPage: number) => {
-    setPage(newPage);
   };
 
-  const handleChangeRowsPerPage = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setRowsPerPage(parseInt(event.target.value, 10));
-    setPage(0);
-  };
-
-  // Filter handlers
-  const handleOpenFilterDialog = () => {
-    setOpenFilterDialog(true);
-  };
-
-  const handleCloseFilterDialog = () => {
-    setOpenFilterDialog(false);
-  };
-  
-  const handleTextFilterChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = event.target;
-    setFilters({
-      ...filters,
-      [name]: value
-    });
-  };
-  
-  const handleSelectFilterChange = (event: SelectChangeEvent) => {
-    const { name, value } = event.target;
-    setFilters({
-      ...filters,
-      [name]: value
-    });
-  };
-  
-  const handleApplyFilters = () => {
-    setPage(0); // Reset to first page when applying filters
-    setOpenFilterDialog(false);
-    fetchEvents();
-  };
-
-  const handleViewEvent = (event: any) => {
-    setSelectedEvent(event);
-    setOpenEventDialog(true);
-  };
-
-  const handleCloseEventDialog = () => {
-    setOpenEventDialog(false);
-  };
-
-  const toggleViewMode = () => {
-    setViewMode(viewMode === 'table' ? 'grid' : 'table');
-  };
-
-  // Tab change handler
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
-    setTabValue(newValue);
-  };
-
-  // Handle search from AdvancedEventSearch
-  const handleSearch = (newFilters: EventFilters) => {
-    setFilters(newFilters);
-    setPage(0);
-    fetchEvents();
-  };
-
-  // Handle date range change from timeline
-  const handleTimelineRangeChange = (startDate: Date, endDate: Date) => {
-    setFilters({
-      ...filters,
-      startDate: startDate.toISOString(),
-      endDate: endDate.toISOString()
-    });
-    setPage(0);
-    fetchEvents();
-  };
-
-  // Handle export events
-  const handleExportEvents = async (exportFormat: string) => {
-    if (!token) return;
-    
-    setExportLoading(true);
-    
+  const exportEvents = async (filterToExport: EventFilter, format: string) => {
     try {
-      // Build query parameters for export
-      const params: any = { format: exportFormat };
+      setLoading(true);
       
-      // Apply all current filters to export
-      if (filters.eventType !== 'all') {
-        params.type = filters.eventType;
+      // Build query parameters based on filters
+      const params = new URLSearchParams();
+      params.append('format', format);
+      
+      if (filterToExport.startDate) {
+        params.append('startTime', filterToExport.startDate.toISOString());
       }
       
-      if (filters.cameraId !== 'all') {
-        params.cameraId = filters.cameraId;
+      if (filterToExport.endDate) {
+        params.append('endTime', filterToExport.endDate.toISOString());
       }
       
-      if (filters.startDate) {
-        params.startDate = new Date(filters.startDate).toISOString();
+      if (filterToExport.cameraIds.length > 0) {
+        filterToExport.cameraIds.forEach(id => params.append('cameraIds', id));
       }
       
-      if (filters.endDate) {
-        params.endDate = new Date(filters.endDate).toISOString();
+      if (filterToExport.eventTypes.length > 0) {
+        filterToExport.eventTypes.forEach(type => params.append('eventTypes', type));
       }
       
-      if (parseFloat(filters.minConfidence) > 0) {
-        params.minConfidence = parseFloat(filters.minConfidence);
+      if (filterToExport.objectTypes.length > 0) {
+        filterToExport.objectTypes.forEach(type => params.append('objectTypes', type));
       }
       
-      // Export endpoint with proper params
-      const response = await axios.get(`${API_URL}/events/export`, {
+      if (filterToExport.minConfidence > 0) {
+        params.append('minConfidence', filterToExport.minConfidence.toString());
+      }
+      
+      // Generate a filename
+      const dateStr = format(new Date(), 'yyyy-MM-dd');
+      const filename = `events-export-${dateStr}.${format}`;
+      
+      // Make API request for export
+      const response = await axios.get(`/api/events/export?${params.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
-        params,
         responseType: 'blob'
       });
       
-      // Create download link
+      // Create a download link and trigger download
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      
-      // Set filename based on format
-      const now = new Date();
-      const dateStr = format(now, 'yyyy-MM-dd');
-      link.download = `events-export-${dateStr}.${exportFormat}`;
-      
-      // Trigger download
+      link.setAttribute('download', filename);
       document.body.appendChild(link);
       link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('Error exporting events:', error);
+      link.remove();
+    } catch (err) {
+      console.error('Error exporting events:', err);
       setError('Failed to export events. Please try again.');
     } finally {
-      setExportLoading(false);
+      setLoading(false);
     }
   };
 
-  // Format date for display
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleString();
+  const handleViewChange = (_: React.SyntheticEvent, newValue: number) => {
+    setView(newValue);
   };
 
-  // Get icon for event type
-  const getEventIcon = (type: string) => {
-    switch (type) {
-      case 'person':
-        return <PersonIcon />;
-      case 'vehicle':
-        return <DirectionsCarIcon />;
-      case 'animal':
-        return <PetsIcon />;
-      case 'motion':
+  const handleEventClick = (event: Event) => {
+    setSelectedEvent(event);
+    setDetailsOpen(true);
+  };
+
+  const handleFilterSearch = (newFilters: EventFilter) => {
+    setFilters(newFilters);
+    setPage(1); // Reset to first page with new filters
+  };
+
+  const handleExport = (filterToExport: EventFilter, format: string) => {
+    exportEvents(filterToExport, format);
+  };
+
+  const renderContent = () => {
+    if (loading && events.length === 0) {
+      return (
+        <Box sx={{ display: 'flex', justifyContent: 'center', p: 5 }}>
+          <CircularProgress />
+        </Box>
+      );
+    }
+
+    if (error) {
+      return (
+        <Paper sx={{ p: 3, textAlign: 'center' }}>
+          <Typography color="error">{error}</Typography>
+          <Button
+            startIcon={<RefreshIcon />}
+            onClick={fetchEvents}
+            sx={{ mt: 2 }}
+          >
+            Retry
+          </Button>
+        </Paper>
+      );
+    }
+
+    if (events.length === 0) {
+      return (
+        <Paper sx={{ p: 4, textAlign: 'center' }}>
+          <Typography variant="h6" color="text.secondary">
+            No events found matching your criteria
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            Try adjusting your filters or time range
+          </Typography>
+        </Paper>
+      );
+    }
+
+    switch (view) {
+      case 0: // List view
+        return (
+          <EventList
+            events={events}
+            onEventClick={handleEventClick}
+            totalCount={totalEvents}
+            page={page}
+            onPageChange={(newPage) => setPage(newPage)}
+          />
+        );
+      case 1: // Timeline view
+        return (
+          <EventTimeline
+            events={events}
+            onEventClick={handleEventClick}
+            startDate={filters.startDate || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)}
+            endDate={filters.endDate || new Date()}
+          />
+        );
+      case 2: // Grid view
+        return (
+          <EventGrid
+            events={events}
+            onEventClick={handleEventClick}
+            totalCount={totalEvents}
+            page={page}
+            onPageChange={(newPage) => setPage(newPage)}
+          />
+        );
+      case 3: // Map view
+        return <EventMap events={events} onEventClick={handleEventClick} />;
       default:
-        return <NotificationsActiveIcon />;
+        return null;
     }
   };
-
-  // Get color for event type
-  const getEventColor = (type: string) => {
-    switch (type) {
-      case 'person':
-        return 'primary';
-      case 'vehicle':
-        return 'secondary';
-      case 'animal':
-        return 'success';
-      case 'motion':
-      default:
-        return 'warning';
-    }
-  };
-
-  // Loading state
-  if (loading && events.length === 0) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
 
   return (
-    <Box sx={{ flexGrow: 1 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4" gutterBottom>
-          Events
-        </Typography>
+    <Box>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography variant="h5">Event Browser</Typography>
         <Box>
-          <Button
-            variant="outlined"
-            color="primary"
-            sx={{ mr: 1 }}
-            startIcon={<DownloadIcon />}
-            onClick={() => handleExportEvents('csv')}
-            disabled={exportLoading || events.length === 0}
+          <IconButton 
+            onClick={() => setShowFilters(!showFilters)}
+            color={showFilters ? 'primary' : 'default'}
           >
-            {exportLoading ? 'Exporting...' : 'Export'}
-          </Button>
-          <Button
-            variant="outlined"
-            color="primary"
-            sx={{ mr: 2 }}
-            onClick={toggleViewMode}
-            disabled={loading || tabValue !== 0}
-            startIcon={viewMode === 'table' ? <GridViewIcon /> : <ListIcon />}
-          >
-            {viewMode === 'table' ? 'Grid View' : 'Table View'}
-          </Button>
+            <FilterIcon />
+          </IconButton>
+          <IconButton onClick={fetchEvents}>
+            <RefreshIcon />
+          </IconButton>
+          <IconButton onClick={() => handleExport(filters, 'csv')}>
+            <DownloadIcon />
+          </IconButton>
         </Box>
       </Box>
-      
-      {/* Advanced search component */}
-      <AdvancedEventSearch 
-        cameras={cameras}
-        onSearch={handleSearch}
-        initialFilters={filters}
-        onExport={handleExportEvents}
-      />
-      
-      {/* Tabs for different views */}
-      <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-        <Tabs 
-          value={tabValue} 
-          onChange={handleTabChange} 
-          aria-label="event views"
-          centered
-        >
-          <Tab 
-            icon={<ListIcon />} 
-            label="List View" 
-            id="events-tab-0" 
-            aria-controls="events-tabpanel-0" 
+
+      {/* Filter section */}
+      {showFilters && (
+        <Box sx={{ mb: 3 }}>
+          <AdvancedEventSearch
+            onSearch={handleFilterSearch}
+            onExport={handleExport}
           />
-          <Tab 
-            icon={<TimelineIcon />} 
-            label="Timeline View" 
-            id="events-tab-1" 
-            aria-controls="events-tabpanel-1" 
-          />
-        </Tabs>
-      </Box>
-      
-      {/* Error message */}
-      {error && (
-        <Alert severity="error" sx={{ mb: 3 }}>
-          {error}
-        </Alert>
-      )}
-      
-      {/* Empty state */}
-      {events.length === 0 && !loading && (
-        <Box sx={{ textAlign: 'center', py: 5 }}>
-          <Typography variant="h6" color="text.secondary" gutterBottom>
-            No events found
-          </Typography>
-          <Typography variant="body1" color="text.secondary">
-            Try adjusting your filters or check back later
-          </Typography>
         </Box>
       )}
-      
-      {/* List View Tab */}
-      <TabPanel value={tabValue} index={0}>
-        {viewMode === 'table' ? (
-          <>
-            <TableContainer component={Paper}>
-              <Table sx={{ minWidth: 650 }} aria-label="events table">
-                <TableHead>
-                  <TableRow>
-                    <TableCell>Type</TableCell>
-                    <TableCell>Camera</TableCell>
-                    <TableCell>Timestamp</TableCell>
-                    <TableCell>Confidence</TableCell>
-                    <TableCell align="right">Actions</TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {events
-                    .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-                    .map((event) => (
-                      <TableRow key={event.id}>
-                        <TableCell>
-                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                            <Box sx={{ mr: 1 }}>
-                              {getEventIcon(event.type)}
-                            </Box>
-                            <Chip
-                              label={event.type.charAt(0).toUpperCase() + event.type.slice(1)}
-                              color={getEventColor(event.type) as any}
-                              size="small"
-                            />
-                          </Box>
-                        </TableCell>
-                        <TableCell>{event.cameraName}</TableCell>
-                        <TableCell>{formatDate(event.timestamp)}</TableCell>
-                        <TableCell>{`${Math.round(event.confidence * 100)}%`}</TableCell>
-                        <TableCell align="right">
-                          <IconButton
-                            color="primary"
-                            aria-label="view event"
-                            onClick={() => handleViewEvent(event)}
-                          >
-                            <VisibilityIcon />
-                          </IconButton>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-            
-            <TablePagination
-              rowsPerPageOptions={[5, 10, 25, 50]}
-              component="div"
-              count={totalCount}
-              rowsPerPage={rowsPerPage}
-              page={page}
-              onPageChange={handleChangePage}
-              onRowsPerPageChange={handleChangeRowsPerPage}
-              labelDisplayedRows={({ from, to, count }) => `${from}-${to} of ${count !== -1 ? count : `more than ${to}`}`}
-            />
-          </>
-        ) : (
-          <>
-            <Grid container spacing={3}>
-              {events
-                .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-                .map((event) => (
-                  <Grid item xs={12} sm={6} md={4} lg={3} key={event.id}>
-                    <Card>
-                      <CardMedia
-                        component="img"
-                        height="140"
-                        image={event.thumbnail}
-                        alt={`${event.type} event`}
-                      />
-                      <CardContent>
-                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                          <Box sx={{ mr: 1 }}>
-                            {getEventIcon(event.type)}
-                          </Box>
-                          <Chip
-                            label={event.type.charAt(0).toUpperCase() + event.type.slice(1)}
-                            color={getEventColor(event.type) as any}
-                            size="small"
-                          />
-                        </Box>
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                          Camera: {event.cameraName}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                          Time: {formatDate(event.timestamp)}
-                        </Typography>
-                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                          Confidence: {`${Math.round(event.confidence * 100)}%`}
-                        </Typography>
-                        <Button
-                          variant="outlined"
-                          size="small"
-                          startIcon={<VisibilityIcon />}
-                          onClick={() => handleViewEvent(event)}
-                        >
-                          View Details
-                        </Button>
-                      </CardContent>
-                    </Card>
-                  </Grid>
-                ))}
-            </Grid>
-            
-            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-              <TablePagination
-                rowsPerPageOptions={[4, 8, 12, 16, 24]}
-                component="div"
-                count={totalCount}
-                rowsPerPage={rowsPerPage}
-                page={page}
-                onPageChange={handleChangePage}
-                onRowsPerPageChange={handleChangeRowsPerPage}
-                labelDisplayedRows={({ from, to, count }) => `${from}-${to} of ${count !== -1 ? count : `more than ${to}`}`}
-              />
-            </Box>
-          </>
-        )}
-      </TabPanel>
-      
-      {/* Timeline View Tab */}
-      <TabPanel value={tabValue} index={1}>
-        <EventTimeline 
-          events={events}
-          onEventClick={handleViewEvent}
-          onRangeChange={handleTimelineRangeChange}
-          onFilter={(filterType, value) => {
-            if (filterType === 'eventType') {
-              setFilters({
+
+      {/* View selection tabs */}
+      <Tabs
+        value={view}
+        onChange={handleViewChange}
+        sx={{ borderBottom: 1, borderColor: 'divider', mb: 2 }}
+      >
+        <Tab icon={<ViewListIcon />} label="List" />
+        <Tab icon={<TimelineIcon />} label="Timeline" />
+        <Tab icon={<GridViewIcon />} label="Grid" />
+        <Tab icon={<MapIcon />} label="Map" />
+      </Tabs>
+
+      {/* Active filters chips */}
+      {(filters.eventTypes.length > 0 || 
+       filters.cameraIds.length > 0 || 
+       filters.objectTypes.length > 0 || 
+       filters.tags.length > 0) && (
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2, p: 1, bgcolor: 'background.paper', borderRadius: 1 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mr: 1, alignSelf: 'center' }}>
+            Active Filters:
+          </Typography>
+          
+          {filters.eventTypes.map((type) => (
+            <Chip
+              key={`event-${type}`}
+              label={`Event: ${type}`}
+              size="small"
+              onDelete={() => setFilters({
                 ...filters,
-                eventType: value
-              });
-              setPage(0);
-              fetchEvents();
-            }
-          }}
-          loading={loading}
-        />
-      </TabPanel>
-      
-      {/* Event Detail Dialog */}
-      {selectedEvent && (
-        <Dialog open={openEventDialog} onClose={handleCloseEventDialog} maxWidth="md" fullWidth>
-          <DialogTitle>
-            {`${selectedEvent.type.charAt(0).toUpperCase() + selectedEvent.type.slice(1)} Event - ${selectedEvent.cameraName}`}
-          </DialogTitle>
-          <DialogContent>
-            <Grid container spacing={2}>
-              <Grid item xs={12} md={6}>
-                <img
-                  src={selectedEvent.thumbnail}
-                  alt={`${selectedEvent.type} event`}
-                  style={{ width: '100%', borderRadius: '4px' }}
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <Typography variant="subtitle1" gutterBottom>
-                  Event Details
-                </Typography>
-                <Typography variant="body2" paragraph>
-                  <strong>Type:</strong> {selectedEvent.type.charAt(0).toUpperCase() + selectedEvent.type.slice(1)}
-                </Typography>
-                <Typography variant="body2" paragraph>
-                  <strong>Camera:</strong> {selectedEvent.cameraName}
-                </Typography>
-                <Typography variant="body2" paragraph>
-                  <strong>Time:</strong> {formatDate(selectedEvent.timestamp)}
-                </Typography>
-                <Typography variant="body2" paragraph>
-                  <strong>Confidence:</strong> {`${Math.round(selectedEvent.confidence * 100)}%`}
-                </Typography>
-                {selectedEvent.metadata && (
-                  <>
-                    <Typography variant="subtitle1" gutterBottom sx={{ mt: 2 }}>
-                      Metadata
-                    </Typography>
-                    {Object.entries(selectedEvent.metadata).map(([key, value]) => (
-                      <Typography key={key} variant="body2" paragraph>
-                        <strong>{key.charAt(0).toUpperCase() + key.slice(1)}:</strong> {String(value)}
-                      </Typography>
-                    ))}
-                  </>
-                )}
-                <Typography variant="subtitle1" gutterBottom sx={{ mt: 2 }}>
-                  Actions
-                </Typography>
-                <Box sx={{ display: 'flex', gap: 1 }}>
-                  <Button 
-                    variant="outlined" 
-                    size="small"
-                    onClick={() => {
-                      // Navigate to recording containing this event
-                      if (selectedEvent.recordingId) {
-                        window.open(`/recordings/${selectedEvent.recordingId}`, '_blank');
-                      }
-                    }}
-                    disabled={!selectedEvent.recordingId}
-                  >
-                    View Recording
-                  </Button>
-                  <Button 
-                    variant="outlined" 
-                    size="small"
-                    onClick={() => {
-                      // Download thumbnail image
-                      const link = document.createElement('a');
-                      link.href = selectedEvent.thumbnail;
-                      link.download = `event-${selectedEvent.id}.jpg`;
-                      document.body.appendChild(link);
-                      link.click();
-                      document.body.removeChild(link);
-                    }}
-                  >
-                    Download Image
-                  </Button>
-                </Box>
-              </Grid>
-            </Grid>
-          </DialogContent>
-          <DialogActions>
-            <Button onClick={handleCloseEventDialog}>Close</Button>
-          </DialogActions>
-        </Dialog>
+                eventTypes: filters.eventTypes.filter(t => t !== type)
+              })}
+            />
+          ))}
+          
+          {filters.objectTypes.map((type) => (
+            <Chip
+              key={`object-${type}`}
+              label={`Object: ${type}`}
+              size="small"
+              onDelete={() => setFilters({
+                ...filters,
+                objectTypes: filters.objectTypes.filter(t => t !== type)
+              })}
+            />
+          ))}
+          
+          {filters.tags.map((tag) => (
+            <Chip
+              key={`tag-${tag}`}
+              label={`Tag: ${tag}`}
+              size="small"
+              onDelete={() => setFilters({
+                ...filters,
+                tags: filters.tags.filter(t => t !== tag)
+              })}
+            />
+          ))}
+          
+          <Chip
+            label={`Date: ${filters.startDate ? format(filters.startDate, 'MMM d') : ''} - ${filters.endDate ? format(filters.endDate, 'MMM d') : ''}`}
+            size="small"
+          />
+          
+          {filters.minConfidence > 0 && (
+            <Chip
+              label={`Confidence: >${filters.minConfidence}%`}
+              size="small"
+            />
+          )}
+        </Box>
       )}
+
+      {/* Events content */}
+      <Box sx={{ minHeight: 400 }}>
+        {renderContent()}
+      </Box>
+
+      {/* Event details dialog */}
+      <Dialog
+        open={detailsOpen}
+        onClose={() => setDetailsOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        {selectedEvent && (
+          <EventDetails
+            event={selectedEvent}
+            onClose={() => setDetailsOpen(false)}
+          />
+        )}
+      </Dialog>
     </Box>
   );
 };
