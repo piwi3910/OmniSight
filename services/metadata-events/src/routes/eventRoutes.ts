@@ -6,10 +6,18 @@ import {
   updateEvent,
   deleteEvent,
   getEventsByCamera,
-  getEventsByRecording
+  getEventsByRecording,
+  searchEventsByObjectTypes,
+  exportEvents,
+  getEventCountsByType,
+  applyRetentionPolicy
 } from '../controllers/eventController';
+import { authenticate } from '../middleware/auth';
 
 const router = express.Router();
+
+// Apply authentication middleware to all routes
+router.use(authenticate);
 
 /**
  * @route   GET /api/events
@@ -17,6 +25,34 @@ const router = express.Router();
  * @access  Private
  */
 router.get('/', getAllEvents);
+
+/**
+ * @route   GET /api/events/search
+ * @desc    Search events with advanced filters
+ * @access  Private
+ */
+router.get('/search', searchEventsByObjectTypes);
+
+/**
+ * @route   GET /api/events/export
+ * @desc    Export events to CSV or JSON
+ * @access  Private
+ */
+router.get('/export', exportEvents);
+
+/**
+ * @route   GET /api/events/counts
+ * @desc    Get event counts by type
+ * @access  Private
+ */
+router.get('/counts', getEventCountsByType);
+
+/**
+ * @route   POST /api/events/retention
+ * @desc    Apply retention policy to events
+ * @access  Private/Admin
+ */
+router.post('/retention', applyRetentionPolicy);
 
 /**
  * @route   GET /api/events/:id
@@ -47,17 +83,17 @@ router.put('/:id', updateEvent);
 router.delete('/:id', deleteEvent);
 
 /**
- * @route   GET /api/cameras/:cameraId/events
+ * @route   GET /api/events/cameras/:cameraId
  * @desc    Get events by camera ID
  * @access  Private
  */
-router.get('/cameras/:cameraId/events', getEventsByCamera);
+router.get('/cameras/:cameraId', getEventsByCamera);
 
 /**
- * @route   GET /api/recordings/:recordingId/events
+ * @route   GET /api/events/recordings/:recordingId
  * @desc    Get events by recording ID
  * @access  Private
  */
-router.get('/recordings/:recordingId/events', getEventsByRecording);
+router.get('/recordings/:recordingId', getEventsByRecording);
 
 export default router;
