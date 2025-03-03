@@ -274,8 +274,8 @@ This document outlines the implementation plan for completing the OmniSight vide
 - [x] Implement end-to-end encryption with multiple algorithms
 - [x] Add bandwidth adaptation and performance optimization
 - [x] Develop browser-compatible WebRTC player with cross-browser support
-- [ ] Create WebRTC stream ingestion pipeline (80% complete)
-- [ ] Create WebRTC stream recording capabilities
+- [x] Create WebRTC stream ingestion pipeline with multi-source support
+- [x] Create WebRTC stream recording capabilities with segmentation
 
 #### 6.4 HTTP Live Streaming (HLS) Enhancements ⬜
 
@@ -505,6 +505,10 @@ Key features implemented:
 - Cross-browser compatibility measures
 - Performance metrics collection and optimization
 - Multiple encryption algorithms and security options
+- Stream recording with segmentation and metadata generation
+- Stream ingestion pipeline with support for multiple source types
+- Health monitoring and automatic reconnection for streams
+- Automatic thumbnail generation and recording management
 
 ### Protocol Abstraction Layer
 

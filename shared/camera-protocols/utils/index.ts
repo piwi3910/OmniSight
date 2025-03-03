@@ -52,11 +52,40 @@ export {
   EncryptionStats
 } from './WebRTCEncryption';
 
+// Export WebRTCRecorder
+export {
+  WebRTCRecorder,
+  RecordingFormat,
+  RecordingQuality,
+  RecordingState,
+  RecordingEvent,
+  RecordingConfig,
+  RecordingMetadata,
+  RecordingStats
+} from './WebRTCRecorder';
+
+// Export StreamIngestionPipeline
+export {
+  StreamIngestionPipeline,
+  StreamSourceType,
+  StreamOutputFormat,
+  StreamProcessingOptions,
+  StreamSourceConfig,
+  StreamOutputConfig,
+  StreamIngestionConfig,
+  StreamIngestionStatus,
+  StreamHealthStatus,
+  StreamIngestionEvent,
+  StreamIngestionStats
+} from './StreamIngestionPipeline';
+
 // Import needed for the function below
 import { WebRTCSignalingServer } from './WebRTCSignalingServer';
 import { WebRTCStreamHandler } from './WebRTCStreamHandler';
 import { NATTraversalHelper, NATTraversalConfig, NATTraversalEvent, NATTraversalStrategy, NATTraversalStats, NetworkTypeInfo, ICECandidateType, ICECandidateInfo } from './NATTraversalHelper';
 import { WebRTCEncryption, EncryptionMode, EncryptionConfig, EncryptionHeader, EncryptionKeyInfo, EncryptionStats } from './WebRTCEncryption';
+import { WebRTCRecorder, RecordingFormat, RecordingQuality, RecordingState, RecordingEvent, RecordingConfig, RecordingMetadata, RecordingStats } from './WebRTCRecorder';
+import { StreamIngestionPipeline, StreamSourceType, StreamOutputFormat, StreamProcessingOptions, StreamSourceConfig, StreamOutputConfig, StreamIngestionConfig, StreamIngestionStatus, StreamHealthStatus, StreamIngestionEvent, StreamIngestionStats } from './StreamIngestionPipeline';
 
 /**
  * Create and configure a complete WebRTC system
