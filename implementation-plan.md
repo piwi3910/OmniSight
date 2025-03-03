@@ -239,6 +239,74 @@ This document outlines the implementation plan for completing the OmniSight vide
 - [x] Prepare release notes
 - [x] Create demo videos for key features
 
+### Phase 6: Extended Camera Protocol Support (Week 8-9) ⬜
+
+#### 6.1 MJPEG Protocol Implementation ⬜
+
+- [ ] Create MJPEG stream connection handler
+- [ ] Implement HTTP parsing for Motion JPEG streams
+- [ ] Add MJPEG-specific configuration options
+- [ ] Develop frame extraction and processing pipeline
+- [ ] Integrate with existing recording system
+- [ ] Implement browser-compatible direct streaming
+- [ ] Add automatic protocol detection and fallback
+- [ ] Create MJPEG-specific stream health monitoring
+
+#### 6.2 ONVIF Protocol Integration ⬜
+
+- [ ] Implement ONVIF device discovery service
+- [ ] Create ONVIF authentication mechanisms
+- [ ] Develop standardized ONVIF command interface
+- [ ] Implement comprehensive PTZ controls via ONVIF
+- [ ] Add ONVIF event subscription and handling
+- [ ] Create ONVIF device configuration management
+- [ ] Implement ONVIF profile support (S, T, G)
+- [ ] Develop ONVIF metadata extraction
+
+#### 6.3 WebRTC Implementation ⬜
+
+- [ ] Set up WebRTC signaling server
+- [ ] Implement peer connection management
+- [ ] Create WebRTC stream ingestion pipeline
+- [ ] Develop browser-compatible WebRTC player
+- [ ] Add NAT traversal with ICE, STUN, and TURN
+- [ ] Implement bandwidth adaptation
+- [ ] Create WebRTC stream recording capabilities
+- [ ] Add encryption and security measures
+
+#### 6.4 HTTP Live Streaming (HLS) Enhancements ⬜
+
+- [ ] Expand HLS support beyond basic playback
+- [ ] Implement HLS stream generation from RTSP sources
+- [ ] Create multi-bitrate adaptive streaming
+- [ ] Add segment encryption for secure streaming
+- [ ] Develop low-latency HLS options
+- [ ] Implement stream authentication for HLS
+- [ ] Create CDN-compatible streaming options
+- [ ] Add HLS recording and conversion utilities
+
+#### 6.5 Proprietary Camera API Support ⬜
+
+- [ ] Implement Hikvision SDK integration
+- [ ] Add Axis VAPIX protocol support
+- [ ] Develop Dahua SDK compatibility
+- [ ] Create Ubiquiti UniFi Video API integration
+- [ ] Implement Hanwha (Samsung) SUNAPI support
+- [ ] Add proprietary PTZ protocol handlers
+- [ ] Create camera-specific feature detection
+- [ ] Implement SDK-specific event handling
+
+#### 6.6 Protocol Abstraction Layer ⬜
+
+- [ ] Design unified camera interface abstraction
+- [ ] Implement protocol-agnostic camera operations
+- [ ] Create automatic protocol detection and selection
+- [ ] Develop protocol fallback mechanisms
+- [ ] Add protocol-specific optimization options
+- [ ] Implement cross-protocol feature parity
+- [ ] Create unified configuration interface
+- [ ] Add protocol conversion capabilities where appropriate
+
 ## Detailed Implementation Notes
 
 ### Stream Processing Pipeline
@@ -394,6 +462,16 @@ Comprehensive documentation now available:
 - Troubleshooting and maintenance procedures
 - Installation and upgrade instructions
 
+### Extended Camera Protocol Support
+
+The planned comprehensive camera protocol support will include:
+- MJPEG over HTTP for broad compatibility with legacy systems
+- ONVIF standard for unified camera management
+- WebRTC for ultra-low latency streaming
+- Enhanced HLS support for optimized remote viewing
+- Proprietary API integrations for advanced camera features
+- Unified abstraction layer for protocol-agnostic operations
+
 ## Timeline and Milestones
 
 | Week | Milestone | Key Deliverables | Status |
@@ -405,6 +483,8 @@ Comprehensive documentation now available:
 | Week 5 | Frontend Completion | Event browser, Settings, Multi-camera support | ✅ Complete |
 | Week 6 | Testing & Optimization | Performance improvements, Bug fixes | ✅ Complete |
 | Week 7 | Release Preparation | Documentation, Final testing, Release package | ✅ Complete |
+| Week 8 | Protocol Extensions 1 | MJPEG and ONVIF implementations | ⬜ Planned |
+| Week 9 | Protocol Extensions 2 | WebRTC, HLS, and proprietary API support | ⬜ Planned |
 
 ## Future Enhancements
 
@@ -412,13 +492,22 @@ Comprehensive documentation now available:
    - Face recognition
    - Behavior analysis
    - Advanced motion detection
+   - Object tracking across cameras
+   - Anomaly detection
+   - Crowd analysis
 
 2. **Integration Options**
    - Smart home integration
    - Mobile app with push notifications
    - Third-party NVR support
+   - Integration with access control systems
+   - Alarm system connections
+   - API for third-party extensions
 
 3. **Advanced Features**
    - Multi-server clustering
    - Edge computing support
    - Hardware acceleration
+   - Advanced analytics dashboard
+   - GIS/mapping integration
+   - Custom detection model training
