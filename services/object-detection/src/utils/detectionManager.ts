@@ -1,17 +1,24 @@
 import { Worker } from 'worker_threads';
 import path from 'path';
 import os from 'os';
+import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { RabbitMQManager, MessageType } from '@omnisight/shared';
 import { PrismaClient } from '@prisma/client';
 import config from '../config/config';
 import logger from './logger';
+import * as modelLoader from './modelLoader';
+
+// Extend Worker type to include busy property
+interface DetectionWorker extends Worker {
+  busy: boolean;
+}
 
 // Initialize Prisma client
 const prisma = new PrismaClient();
 
 // Store worker threads
-const workers: Worker[] = [];
+const workers: DetectionWorker[] = [];
 
 // Queue of frames to process
 interface DetectionTask {
@@ -21,6 +28,17 @@ interface DetectionTask {
   frameData: string;
   timestamp: string;
   priority: number;
+  addedAt: number;
+}
+
+// Detection stats
+interface DetectionStats {
+  totalDetections: number;
+  framesProcessed: number;
+  framesSkipped: number;
+  processingTimes: number[];
+  objectsByClass: Record<string, number>;
+  lastDetectionTime: number | null;
 }
 
 // Queue for detection tasks
@@ -28,6 +46,19 @@ const detectionQueue: DetectionTask[] = [];
 
 // Processing status
 let isProcessing = false;
+
+// Statistics
+const stats: DetectionStats = {
+  totalDetections: 0,
+  framesProcessed: 0,
+  framesSkipped: 0,
+  processingTimes: [],
+  objectsByClass: {},
+  lastDetectionTime: null
+};
+
+// Max queue size
+const MAX_QUEUE_SIZE = config.detection.maxQueueSize || 100;
 
 // Reference to RabbitMQ manager
 let rabbitmqManager: RabbitMQManager;
@@ -53,7 +84,7 @@ export const initializeRabbitMQ = async (): Promise<void> => {
     // Set up consumer for stream frames
     await rabbitmqManager.consume(
       'object-detection.frames-queue',
-      async (message) => {
+      async (message: any) => {
         if (message.type === MessageType.STREAM_FRAME) {
           await enqueueDetectionTask(message.payload);
         }
@@ -71,10 +102,24 @@ export const initializeRabbitMQ = async (): Promise<void> => {
  * Initialize worker threads for object detection
  */
 export const initializeWorkers = (): void => {
-  // Determine number of workers (leave one core free)
-  const numWorkers = Math.max(1, os.cpus().length - 1);
+  // Create tmp directory for thumbnails if it doesn't exist
+  const thumbnailDir = path.resolve(process.cwd(), config.detection.thumbnailPath);
+  if (!fs.existsSync(thumbnailDir)) {
+    fs.mkdirSync(thumbnailDir, { recursive: true });
+    logger.info(`Created thumbnail directory: ${thumbnailDir}`);
+  }
+
+  // Determine number of workers (default to CPU count - 1, or user config)
+  const numWorkers = config.detection.workers > 0 
+    ? config.detection.workers 
+    : Math.max(1, os.cpus().length - 1);
   
   logger.info(`Initializing ${numWorkers} detection worker threads`);
+  
+  // Verify model exists before starting workers
+  if (!modelLoader.verifyModelFiles()) {
+    logger.warn('Model files missing or invalid - workers may fail to initialize');
+  }
   
   // Create workers
   for (let i = 0; i < numWorkers; i++) {
@@ -86,11 +131,16 @@ export const initializeWorkers = (): void => {
           modelPath: path.resolve(process.cwd(), config.detection.modelPath)
         }
       }
-    );
+    ) as DetectionWorker;
     
     // Handle worker messages
-    worker.on('message', (result) => {
-      handleDetectionResult(result);
+    worker.on('message', (message: any) => {
+      if (message.type === 'ready') {
+        logger.info(`Worker ${message.workerId} is ready`);
+        worker.busy = false;
+      } else {
+        handleDetectionResult(message);
+      }
     });
     
     // Handle worker errors
@@ -128,10 +178,16 @@ export const initializeWorkers = (): void => {
     });
     
     // Add worker to pool
+    worker.busy = true; // Mark as busy until ready message
     workers.push(worker);
   }
   
   logger.info(`${workers.length} detection workers initialized`);
+  
+  // Preload model in background
+  modelLoader.preloadModel()
+    .then(() => logger.info('Model preloaded successfully'))
+    .catch(err => logger.warn('Model preload failed:', err));
 };
 
 /**
@@ -141,6 +197,14 @@ export const enqueueDetectionTask = async (frameData: any): Promise<void> => {
   try {
     const { streamId, cameraId, timestamp, data } = frameData;
     
+    // Skip if queue is full and this is not a high priority task
+    const priority = frameData.priority || 1;
+    if (detectionQueue.length >= MAX_QUEUE_SIZE && priority <= 1) {
+      stats.framesSkipped++;
+      logger.debug(`Skipping frame from stream ${streamId}, queue full (${detectionQueue.length}/${MAX_QUEUE_SIZE})`);
+      return;
+    }
+    
     // Create task
     const task: DetectionTask = {
       id: uuidv4(),
@@ -148,7 +212,8 @@ export const enqueueDetectionTask = async (frameData: any): Promise<void> => {
       cameraId,
       frameData: data,
       timestamp,
-      priority: 1 // Default priority
+      priority,
+      addedAt: Date.now()
     };
     
     // Add to queue
@@ -176,8 +241,16 @@ const processNextTask = async (): Promise<void> => {
     
     isProcessing = true;
     
-    // Sort queue by priority (highest first)
-    detectionQueue.sort((a, b) => b.priority - a.priority);
+    // Sort queue by priority (highest first) and then by timestamp (oldest first)
+    detectionQueue.sort((a, b) => {
+      // First sort by priority (descending)
+      if (b.priority !== a.priority) {
+        return b.priority - a.priority;
+      }
+      
+      // Then sort by age (oldest first)
+      return a.addedAt - b.addedAt;
+    });
     
     // Get next task
     const task = detectionQueue.shift();
@@ -188,14 +261,14 @@ const processNextTask = async (): Promise<void> => {
     }
     
     // Find available worker
-    const worker = workers.find(w => !w.busy);
+    const availableWorker = workers.find(w => !w.busy);
     
-    if (worker) {
+    if (availableWorker) {
       // Mark worker as busy
-      worker.busy = true;
+      availableWorker.busy = true;
       
       // Send task to worker
-      worker.postMessage({
+      availableWorker.postMessage({
         taskId: task.id,
         streamId: task.streamId,
         cameraId: task.cameraId,
@@ -223,9 +296,7 @@ const processNextTask = async (): Promise<void> => {
  */
 const handleDetectionResult = async (result: any): Promise<void> => {
   try {
-    const { taskId, streamId, cameraId, timestamp, objects, processingTime } = result;
-    
-    logger.debug(`Received detection result for task ${taskId}: ${objects.length} objects detected in ${processingTime}ms`);
+    const { taskId, streamId, cameraId, timestamp, objects, processingTime, skippedReason, thumbnailPath } = result;
     
     // Find worker that sent the result
     const worker = workers.find(w => w.busy);
@@ -235,12 +306,40 @@ const handleDetectionResult = async (result: any): Promise<void> => {
       worker.busy = false;
     }
     
+    // Update statistics
+    stats.framesProcessed++;
+    if (skippedReason) {
+      stats.framesSkipped++;
+    }
+    
+    if (processingTime) {
+      stats.processingTimes.push(processingTime);
+      // Keep only the last 100 processing times
+      if (stats.processingTimes.length > 100) {
+        stats.processingTimes.shift();
+      }
+    }
+    
     // Store detected objects in database
-    if (objects.length > 0) {
-      await storeDetectionResults(streamId, cameraId, timestamp, objects);
+    if (objects && objects.length > 0) {
+      stats.totalDetections += objects.length;
+      stats.lastDetectionTime = Date.now();
+      
+      // Update object class counts
+      objects.forEach((obj: any) => {
+        stats.objectsByClass[obj.class] = (stats.objectsByClass[obj.class] || 0) + 1;
+      });
+      
+      await storeDetectionResults(streamId, cameraId, timestamp, objects, thumbnailPath);
       
       // Publish detection event
-      await publishDetectionEvent(streamId, cameraId, timestamp, objects);
+      await publishDetectionEvent(streamId, cameraId, timestamp, objects, thumbnailPath);
+      
+      logger.debug(`Detection result for task ${taskId}: ${objects.length} objects detected in ${processingTime}ms`);
+    } else if (skippedReason) {
+      logger.debug(`Detection skipped for task ${taskId}: ${skippedReason}`);
+    } else {
+      logger.debug(`No objects detected for task ${taskId}`);
     }
     
     // Process next task
@@ -260,7 +359,8 @@ const storeDetectionResults = async (
   streamId: string,
   cameraId: string,
   timestamp: string,
-  objects: any[]
+  objects: any[],
+  thumbnailPath?: string
 ): Promise<void> => {
   try {
     // Create event
@@ -271,7 +371,8 @@ const storeDetectionResults = async (
         streamId,
         timestamp: new Date(timestamp),
         metadata: {
-          objectCount: objects.length
+          objectCount: objects.length,
+          thumbnailPath: thumbnailPath || null
         }
       }
     });
@@ -306,12 +407,34 @@ const publishDetectionEvent = async (
   streamId: string,
   cameraId: string,
   timestamp: string,
-  objects: any[]
+  objects: any[],
+  thumbnailPath?: string
 ): Promise<void> => {
   try {
     if (!rabbitmqManager) {
       logger.error('RabbitMQ not initialized');
       return;
+    }
+    
+    // Get camera name for notification
+    let cameraName = 'Unknown Camera';
+    try {
+      const camera = await prisma.camera.findUnique({
+        where: { id: cameraId }
+      });
+      if (camera) {
+        cameraName = camera.name;
+      }
+    } catch (err) {
+      logger.warn(`Could not fetch camera name for id ${cameraId}:`, err);
+    }
+    
+    // Prepare thumbnail URL if available
+    let thumbnailUrl = null;
+    if (thumbnailPath) {
+      // Convert absolute path to relative URL path
+      const relativePath = path.relative(process.cwd(), thumbnailPath);
+      thumbnailUrl = `/api/v1/thumbnails/${path.basename(thumbnailPath)}`;
     }
     
     // Publish detection event
@@ -323,11 +446,34 @@ const publishDetectionEvent = async (
         {
           streamId,
           cameraId,
+          cameraName,
           timestamp,
+          thumbnailUrl,
           objects: objects.map(obj => ({
             class: obj.class,
             score: obj.score,
             bbox: obj.bbox
+          }))
+        }
+      )
+    );
+    
+    // Also publish to events exchange for WebSocket notifications
+    await rabbitmqManager.publish(
+      'events',
+      'events.detection',
+      rabbitmqManager.createMessage(
+        MessageType.OBJECT_DETECTED,
+        {
+          eventId: uuidv4(), // Generate ID for WebSocket events
+          streamId,
+          cameraId,
+          cameraName,
+          timestamp,
+          thumbnailUrl,
+          detectedObjects: objects.map(obj => ({
+            label: obj.class,
+            confidence: obj.score
           }))
         }
       )
@@ -343,13 +489,39 @@ const publishDetectionEvent = async (
  * Get detection statistics
  */
 export const getDetectionStats = (): any => {
+  // Calculate average processing time
+  const avgProcessingTime = stats.processingTimes.length > 0
+    ? stats.processingTimes.reduce((sum, time) => sum + time, 0) / stats.processingTimes.length
+    : 0;
+  
   return {
-    workers: workers.length,
-    queueLength: detectionQueue.length,
-    isProcessing,
-    workerStatus: workers.map((worker, index) => ({
-      id: index,
-      busy: !!worker.busy
-    }))
+    workers: {
+      total: workers.length,
+      available: workers.filter(w => !w.busy).length,
+      busy: workers.filter(w => w.busy).length,
+    },
+    queue: {
+      current: detectionQueue.length,
+      max: MAX_QUEUE_SIZE,
+      isProcessing
+    },
+    performance: {
+      avgProcessingTime: Math.round(avgProcessingTime),
+      framesProcessed: stats.framesProcessed,
+      framesSkipped: stats.framesSkipped,
+      totalDetections: stats.totalDetections,
+      lastDetectionTime: stats.lastDetectionTime ? new Date(stats.lastDetectionTime).toISOString() : null
+    },
+    objects: {
+      byClass: stats.objectsByClass
+    },
+    config: {
+      minConfidence: config.detection.minConfidence,
+      detectionInterval: config.detection.detectionInterval,
+      classes: config.detection.classes,
+      motionSensitivity: config.detection.motionSensitivity,
+      regionOfInterest: config.detection.regionOfInterest,
+      saveThumbnails: config.detection.saveThumbnails
+    }
   };
 };
