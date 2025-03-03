@@ -30,18 +30,19 @@ This document outlines the implementation plan for completing the OmniSight vide
 - RTSP stream connection and management
 - Stream health monitoring and auto-reconnection
 - Frame distribution via RabbitMQ
-
-### ⚠️ Partially Implemented
-
 - Service monitoring dashboard
 - Automated testing
 - Video recording functionality
+- Video segmentation and storage
+- Storage management and retention policies
+
+### ⚠️ Partially Implemented
+
+- Object detection pipeline
 
 ### ❌ Missing Components
 
-- Video segmentation and storage
 - Object detection with TensorFlow.js
-- Storage management and retention policies
 - Media playback in frontend
 - Live view implementation
 - Event notifications
@@ -111,12 +112,12 @@ This document outlines the implementation plan for completing the OmniSight vide
 
 #### 2.2 Recording Service
 
-- [ ] Implement video segmentation with fluent-ffmpeg
-- [ ] Set up file organization for recordings
-- [ ] Create metadata tracking for segments
-- [ ] Implement thumbnail generation
-- [ ] Add storage management and cleanup
-- [ ] Create recording control API endpoints
+- [x] Implement video segmentation with fluent-ffmpeg
+- [x] Set up file organization for recordings
+- [x] Create metadata tracking for segments
+- [x] Implement thumbnail generation
+- [x] Add storage management and cleanup
+- [x] Create recording control API endpoints
 
 #### 2.3 Object Detection Service
 
@@ -179,7 +180,7 @@ This document outlines the implementation plan for completing the OmniSight vide
 - [ ] Create detection settings configuration
 - [ ] Add storage management settings
 - [ ] Implement notification preferences
-- [ ] Create system health monitoring dashboard
+- [x] Create system health monitoring dashboard
 - [ ] Add backup and restore functionality
 
 ### Phase 4: Testing and Optimization (Week 6)
@@ -188,7 +189,7 @@ This document outlines the implementation plan for completing the OmniSight vide
 
 - [ ] Develop end-to-end tests for video pipeline
 - [ ] Create performance tests for multiple cameras
-- [ ] Implement API contract tests
+- [x] Implement API contract tests
 - [ ] Add frontend UI automated tests
 - [ ] Create database integrity tests
 
@@ -247,7 +248,7 @@ Key features implemented:
 
 ### Recording Architecture
 
-The recording flow will work as follows:
+The recording flow now works as follows:
 
 ```
 Video Frames → Recording Service → File Storage
@@ -256,6 +257,14 @@ Video Frames → Recording Service → File Storage
                      ↓
             Thumbnail Generation
 ```
+
+Key features implemented:
+- Video segmentation with fluent-ffmpeg
+- Metadata tracking for each segment
+- Automatic thumbnail generation
+- Storage organization by camera and recording ID
+- Retention policy implementation with automatic cleanup
+- Recording control API (start, stop, pause, resume)
 
 ### Object Detection Pipeline
 
@@ -287,7 +296,7 @@ Thumbnail Generation                                           Database Storage 
 |------|-----------|------------------|
 | Week 1 | API Foundation | API Gateway standardization, Database completion |
 | Week 2 | Stream Processing | RTSP handling, Frame distribution ✓ |
-| Week 3 | Recording & Detection | Video recording, Object detection, Event creation |
+| Week 3 | Recording & Detection | Video recording ✓, Object detection, Event creation |
 | Week 4 | Core Frontend | Live view, Basic recording playback |
 | Week 5 | Frontend Completion | Event browser, Settings, Multi-camera support |
 | Week 6 | Testing & Optimization | Performance improvements, Bug fixes |
