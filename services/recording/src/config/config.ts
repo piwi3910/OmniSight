@@ -1,62 +1,61 @@
 import dotenv from 'dotenv';
+import path from 'path';
 
-// Load environment variables
-dotenv.config();
+// Load .env file
+dotenv.config({ path: path.resolve(process.cwd(), '../../.env') });
 
-// Configuration object
+/**
+ * Recording Service configuration
+ */
 const config = {
   // Server configuration
   server: {
-    port: process.env.PORT || 3002,
+    port: process.env.RECORDING_PORT || 3003,
+    host: process.env.RECORDING_HOST || '0.0.0.0',
     env: process.env.NODE_ENV || 'development',
+    corsOrigin: process.env.CORS_ORIGIN || '*'
   },
   
-  // Database configuration
-  database: {
-    host: process.env.DB_HOST || 'localhost',
-    port: parseInt(process.env.DB_PORT || '5432', 10),
-    username: process.env.DB_USERNAME || 'postgres',
-    password: process.env.DB_PASSWORD || 'postgres',
-    database: process.env.DB_NAME || 'omnisight',
-  },
+  // Version information
+  version: process.env.RECORDING_VERSION || '1.0.0',
   
   // RabbitMQ configuration
   rabbitmq: {
-    host: process.env.RABBITMQ_HOST || 'localhost',
-    port: parseInt(process.env.RABBITMQ_PORT || '5672', 10),
-    username: process.env.RABBITMQ_USER || 'guest',
+    url: process.env.RABBITMQ_URL || 'amqp://localhost:5672',
+    username: process.env.RABBITMQ_USERNAME || 'guest',
     password: process.env.RABBITMQ_PASSWORD || 'guest',
-    frameExchange: 'video.frames',
-    eventExchange: 'video.events',
+    frameExchange: 'streams',
+    eventExchange: 'recordings'
   },
   
   // Recording configuration
   recording: {
-    path: process.env.RECORDINGS_PATH || './recordings',
-    segmentDuration: parseInt(process.env.SEGMENT_DURATION || '600', 10), // 10 minutes in seconds
+    storagePath: process.env.RECORDING_STORAGE_PATH || './storage/recordings',
+    segmentDuration: parseInt(process.env.RECORDING_SEGMENT_DURATION || '600'), // 10 minutes by default
     format: process.env.RECORDING_FORMAT || 'mp4',
-    codec: process.env.RECORDING_CODEC || 'libx264',
-    frameRate: parseInt(process.env.FRAME_RATE || '10', 10),
-    resolution: process.env.RESOLUTION || '640x480',
-    thumbnailInterval: parseInt(process.env.THUMBNAIL_INTERVAL || '60', 10), // Generate thumbnail every 60 seconds
+    codec: process.env.RECORDING_CODEC || 'h264',
+    frameRate: parseInt(process.env.RECORDING_FRAME_RATE || '25'),
+    resolution: process.env.RECORDING_RESOLUTION || '1280x720',
+    thumbnailInterval: parseInt(process.env.RECORDING_THUMBNAIL_INTERVAL || '60'), // Generate thumbnail every 60 seconds
+    retentionDays: parseInt(process.env.RECORDING_RETENTION_DAYS || '30') // Store recordings for 30 days by default
   },
   
-  // Storage configuration
-  storage: {
-    retentionDays: parseInt(process.env.RETENTION_DAYS || '30', 10),
-    maxUsagePercent: parseInt(process.env.MAX_STORAGE_USAGE || '90', 10),
-    cleanupInterval: parseInt(process.env.CLEANUP_INTERVAL || '3600', 10), // Check storage every hour
+  // API configuration
+  api: {
+    metadataServiceUrl: process.env.METADATA_SERVICE_URL || 'http://localhost:3001',
+    timeout: parseInt(process.env.API_TIMEOUT || '5000')
   },
   
-  // Metadata service
-  metadataService: {
-    url: process.env.METADATA_EVENTS_SERVICE_URL || 'http://localhost:3004',
+  // Database configuration
+  database: {
+    url: process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/omnisight?schema=public'
   },
   
   // Logging configuration
   logging: {
     level: process.env.LOG_LEVEL || 'info',
-  },
+    format: process.env.LOG_FORMAT || 'json'
+  }
 };
 
 export default config;

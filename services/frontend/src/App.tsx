@@ -1,28 +1,27 @@
 import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
+import { AuthProvider } from './contexts/AuthContext';
 import Layout from './components/Layout';
+import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Cameras from './pages/Cameras';
 import Recordings from './pages/Recordings';
-import RecordingPlayer from './pages/RecordingPlayer';
-import LiveView from './pages/LiveView';
 import Events from './pages/Events';
 import Settings from './pages/Settings';
-import Login from './pages/Login';
+import SystemMonitoring from './pages/SystemMonitoring';
 import NotFound from './pages/NotFound';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
 
-// Create a theme instance
+// Define the theme
 const theme = createTheme({
   palette: {
     mode: 'dark',
     primary: {
-      main: '#2196f3',
+      main: '#1976d2',
     },
     secondary: {
-      main: '#f50057',
+      main: '#dc004e',
     },
     background: {
       default: '#121212',
@@ -30,19 +29,24 @@ const theme = createTheme({
     },
   },
   typography: {
-    fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
+    fontFamily: [
+      'Roboto',
+      '"Helvetica Neue"',
+      'Arial',
+      'sans-serif'
+    ].join(','),
   },
 });
 
 // Protected route component
-const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { isAuthenticated } = useAuth();
+const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
+  const isAuthenticated = localStorage.getItem('token') !== null;
   
   if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" />;
   }
   
-  return <>{children}</>;
+  return children;
 };
 
 function App() {
@@ -50,25 +54,25 @@ function App() {
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <AuthProvider>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          
-          <Route path="/" element={
-            <ProtectedRoute>
-              <Layout />
-            </ProtectedRoute>
-          }>
-            <Route index element={<Dashboard />} />
-            <Route path="cameras" element={<Cameras />} />
-            <Route path="live/:cameraId" element={<LiveView />} />
-            <Route path="recordings" element={<Recordings />} />
-            <Route path="recordings/:recordingId" element={<RecordingPlayer />} />
-            <Route path="events" element={<Events />} />
-            <Route path="settings" element={<Settings />} />
-          </Route>
-          
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <Router>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            
+            <Route path="/" element={
+              <ProtectedRoute>
+                <Layout />
+              </ProtectedRoute>
+            }>
+              <Route index element={<Dashboard />} />
+              <Route path="cameras" element={<Cameras />} />
+              <Route path="recordings" element={<Recordings />} />
+              <Route path="events" element={<Events />} />
+              <Route path="settings" element={<Settings />} />
+              <Route path="monitoring" element={<SystemMonitoring />} />
+              <Route path="*" element={<NotFound />} />
+            </Route>
+          </Routes>
+        </Router>
       </AuthProvider>
     </ThemeProvider>
   );
