@@ -6,11 +6,11 @@ OmniSight has been configured to use real IP cameras on the network. The system 
 
 | Location | IP Address | Username | Password | RTSP URL |
 |----------|------------|----------|----------|----------|
-| Front Door | 192.168.10.21 | frigate | Jbz49teq01! | rtsp://192.168.10.21:554/stream1 |
-| Backyard | 192.168.10.22 | frigate | Jbz49teq01! | rtsp://192.168.10.22:554/stream1 |
-| Garage | 192.168.10.23 | frigate | Jbz49teq01! | rtsp://192.168.10.23:554/stream1 |
-| Driveway | 192.168.10.24 | frigate | Jbz49teq01! | rtsp://192.168.10.24:554/stream1 |
-| Side Entrance | 192.168.10.25 | frigate | Jbz49teq01! | rtsp://192.168.10.25:554/stream1 |
+| Front Door | 192.168.10.21 | frigate | Jbz49teq01! | rtsp://frigate:Jbz49teq01!@192.168.10.21/Preview_01_main |
+| Backyard | 192.168.10.22 | frigate | Jbz49teq01! | rtsp://frigate:Jbz49teq01!@192.168.10.22/Preview_01_main |
+| Garage | 192.168.10.23 | frigate | Jbz49teq01! | rtsp://frigate:Jbz49teq01!@192.168.10.23/Preview_01_main |
+| Driveway | 192.168.10.24 | frigate | Jbz49teq01! | rtsp://frigate:Jbz49teq01!@192.168.10.24/Preview_01_main |
+| Side Entrance | 192.168.10.25 | frigate | Jbz49teq01! | rtsp://frigate:Jbz49teq01!@192.168.10.25/Preview_01_main |
 
 ## Testing Camera Connections
 
@@ -47,6 +47,21 @@ Camera streams can be configured with the following parameters:
 
 These parameters can be adjusted in the environment variables or directly in the config file.
 
+## RTSP URL Format
+
+The RTSP URL format used in this system embeds authentication credentials directly in the URL:
+
+```
+rtsp://[username]:[password]@[ip-address]/[stream-path]
+```
+
+For example:
+```
+rtsp://frigate:Jbz49teq01!@192.168.10.21/Preview_01_main
+```
+
+This format is required for proper authentication with the specific IP cameras used in this system.
+
 ## Adding New Cameras
 
 To add a new camera to the system:
@@ -57,7 +72,7 @@ To add a new camera to the system:
    POST /api/v1/cameras
    {
      "name": "New Camera",
-     "rtspUrl": "rtsp://192.168.10.X:554/stream1",
+     "rtspUrl": "rtsp://username:password@192.168.10.X/Preview_01_main",
      "username": "username",
      "password": "password",
      "location": "Location Description"
@@ -69,7 +84,7 @@ To add a new camera to the system:
 
 The system supports several authentication methods for cameras:
 
-1. **URL Authentication**: Credentials embedded in the RTSP URL
+1. **URL Authentication**: Credentials embedded in the RTSP URL (primary method)
 2. **Digest Authentication**: Used by many IP cameras
 3. **Basic Authentication**: Simple username/password authentication
 
@@ -81,7 +96,7 @@ Common camera connection issues:
 
 1. **Connection Timeout**: Verify the camera's IP address and network connectivity
 2. **Authentication Failure**: Check username and password
-3. **Stream Format Issues**: Some cameras may require specific RTSP URL formats
+3. **Stream Format Issues**: Verify the correct RTSP path (/Preview_01_main)
 4. **Firewall Blocking**: Ensure ports 554 (RTSP) and 8554 (RTSP over HTTP) are open
 
 ## Next Steps in Implementation

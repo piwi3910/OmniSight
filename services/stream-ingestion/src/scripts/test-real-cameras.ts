@@ -54,17 +54,20 @@ async function testCamera(camera: any) {
   logger.info(`Testing connection to ${camera.name} (${camera.ipAddress})...`);
 
   try {
+    // Correct RTSP URL format for the cameras
+    const rtspUrl = `rtsp://frigate:Jbz49teq01!@${camera.ipAddress}/Preview_01_main`;
+    
     // Attempt to start the stream
     const streamOptions = {
       name: camera.name,
-      url: `rtsp://${camera.ipAddress}:554/stream1`,
-      username: camera.username,
-      password: camera.password,
+      url: rtspUrl,
+      // Don't include username/password here as they're already in the URL
       frameRate: 10,  
       width: 640,
       height: 480
     };
 
+    logger.info(`Connecting to RTSP URL: ${rtspUrl}`);
     const stream = await startStream(camera.id, streamOptions);
     
     if (stream) {

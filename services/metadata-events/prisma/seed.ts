@@ -43,10 +43,13 @@ async function main() {
       const cameraId = `real-camera-${ipLastOctet}`;
       const ipAddress = `192.168.10.${ipLastOctet}`;
       
+      // Correct RTSP URL format with credentials in the URL and proper path
+      const rtspUrl = `rtsp://frigate:Jbz49teq01!@${ipAddress}/Preview_01_main`;
+      
       const camera: Camera = {
         id: cameraId,
         name: `${locations[i]} Camera`,
-        rtspUrl: `rtsp://${ipAddress}:554/stream1`,
+        rtspUrl: rtspUrl,
         username: 'frigate',
         password: 'Jbz49teq01!',
         status: 'OFFLINE', // Will be updated when stream is tested
