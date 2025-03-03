@@ -1,312 +1,355 @@
-import * as tf from '@tensorflow/tfjs-node';
 import { Worker } from 'worker_threads';
 import path from 'path';
-import fs from 'fs';
-import axios from 'axios';
+import os from 'os';
 import { v4 as uuidv4 } from 'uuid';
+import { RabbitMQManager, MessageType } from '@omnisight/shared';
+import { PrismaClient } from '@prisma/client';
 import config from '../config/config';
 import logger from './logger';
-import { publishDetectionEvent } from './rabbitmq';
 
-// Load GPU if configured
-if (config.tensorflow.useGPU) {
-  try {
-    require('@tensorflow/tfjs-node-gpu');
-    logger.info('TensorFlow.js GPU support enabled');
-  } catch (error) {
-    logger.warn('Failed to load TensorFlow.js GPU support, falling back to CPU:', error);
-  }
-}
+// Initialize Prisma client
+const prisma = new PrismaClient();
 
-// Detection model
-let model: any = null;
-
-// Worker threads for parallel processing
+// Store worker threads
 const workers: Worker[] = [];
 
-// Map to track active detection processes
-const activeDetections = new Map<string, boolean>();
-
-// Interface for detection result
-interface Detection {
-  class: string;
-  score: number;
-  bbox: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  };
+// Queue of frames to process
+interface DetectionTask {
+  id: string;
+  streamId: string;
+  cameraId: string;
+  frameData: string;
+  timestamp: string;
+  priority: number;
 }
 
+// Queue for detection tasks
+const detectionQueue: DetectionTask[] = [];
+
+// Processing status
+let isProcessing = false;
+
+// Reference to RabbitMQ manager
+let rabbitmqManager: RabbitMQManager;
+
 /**
- * Initialize TensorFlow model
+ * Initialize RabbitMQ connection
  */
-export const initModel = async (): Promise<void> => {
+export const initializeRabbitMQ = async (): Promise<void> => {
   try {
-    logger.info(`Loading TensorFlow.js model: ${config.tensorflow.modelType}`);
+    // Create RabbitMQ manager
+    rabbitmqManager = new RabbitMQManager({
+      url: config.rabbitmq.url,
+      serviceName: 'object-detection',
+      logger
+    });
     
-    // Ensure model directory exists
-    const modelDir = path.dirname(config.tensorflow.modelPath);
-    if (!fs.existsSync(modelDir)) {
-      fs.mkdirSync(modelDir, { recursive: true });
-    }
+    // Connect to RabbitMQ
+    await rabbitmqManager.connect();
     
-    // Load model based on type
-    switch (config.tensorflow.modelType) {
-      case 'coco-ssd':
-        // Load COCO-SSD model
-        const cocoSsd = require('@tensorflow-models/coco-ssd');
-        model = await cocoSsd.load();
-        break;
-        
-      case 'mobilenet':
-        // Load MobileNet model
-        const mobilenet = require('@tensorflow-models/mobilenet');
-        model = await mobilenet.load();
-        break;
-        
-      default:
-        throw new Error(`Unsupported model type: ${config.tensorflow.modelType}`);
-    }
+    // Set up exchanges
+    await rabbitmqManager.setupTopology();
     
-    logger.info('TensorFlow.js model loaded successfully');
+    // Set up consumer for stream frames
+    await rabbitmqManager.consume(
+      'object-detection.frames-queue',
+      async (message) => {
+        if (message.type === MessageType.STREAM_FRAME) {
+          await enqueueDetectionTask(message.payload);
+        }
+      }
+    );
     
-    // Initialize worker threads if configured
-    if (config.tensorflow.workerThreads > 0) {
-      await initWorkers();
-    }
+    logger.info('RabbitMQ connection established for object detection service');
   } catch (error) {
-    logger.error('Failed to initialize TensorFlow.js model:', error);
+    logger.error('Failed to initialize RabbitMQ:', error);
     throw error;
   }
 };
 
 /**
- * Initialize worker threads for parallel processing
+ * Initialize worker threads for object detection
  */
-const initWorkers = async (): Promise<void> => {
-  try {
-    const workerCount = config.tensorflow.workerThreads;
-    logger.info(`Initializing ${workerCount} worker threads`);
-    
-    for (let i = 0; i < workerCount; i++) {
-      const worker = new Worker(path.join(__dirname, 'detectionWorker.js'), {
+export const initializeWorkers = (): void => {
+  // Determine number of workers (leave one core free)
+  const numWorkers = Math.max(1, os.cpus().length - 1);
+  
+  logger.info(`Initializing ${numWorkers} detection worker threads`);
+  
+  // Create workers
+  for (let i = 0; i < numWorkers; i++) {
+    const worker = new Worker(
+      path.resolve(__dirname, 'detectionWorker.js'),
+      {
         workerData: {
-          modelType: config.tensorflow.modelType,
-          modelPath: config.tensorflow.modelPath,
-          minConfidence: config.detection.minConfidence,
-          classes: config.detection.classes
+          workerId: i,
+          modelPath: path.resolve(process.cwd(), config.detection.modelPath)
         }
-      });
+      }
+    );
+    
+    // Handle worker messages
+    worker.on('message', (result) => {
+      handleDetectionResult(result);
+    });
+    
+    // Handle worker errors
+    worker.on('error', (error) => {
+      logger.error(`Worker ${i} error:`, error);
       
-      worker.on('error', (error) => {
-        logger.error(`Worker thread ${i} error:`, error);
-      });
+      // Remove worker from pool
+      const index = workers.indexOf(worker);
+      if (index !== -1) {
+        workers.splice(index, 1);
+      }
       
-      worker.on('exit', (code) => {
-        logger.warn(`Worker thread ${i} exited with code ${code}`);
-        // Restart worker if it exits unexpectedly
-        if (code !== 0) {
-          workers.splice(workers.indexOf(worker), 1);
-          initWorkers();
+      // Create replacement worker
+      setTimeout(() => {
+        initializeWorkers();
+      }, 5000);
+    });
+    
+    // Handle worker exit
+    worker.on('exit', (code) => {
+      if (code !== 0) {
+        logger.error(`Worker ${i} exited with code ${code}`);
+        
+        // Remove worker from pool
+        const index = workers.indexOf(worker);
+        if (index !== -1) {
+          workers.splice(index, 1);
         }
-      });
-      
-      workers.push(worker);
-      logger.info(`Worker thread ${i} initialized`);
+        
+        // Create replacement worker
+        setTimeout(() => {
+          initializeWorkers();
+        }, 5000);
+      }
+    });
+    
+    // Add worker to pool
+    workers.push(worker);
+  }
+  
+  logger.info(`${workers.length} detection workers initialized`);
+};
+
+/**
+ * Enqueue a detection task
+ */
+export const enqueueDetectionTask = async (frameData: any): Promise<void> => {
+  try {
+    const { streamId, cameraId, timestamp, data } = frameData;
+    
+    // Create task
+    const task: DetectionTask = {
+      id: uuidv4(),
+      streamId,
+      cameraId,
+      frameData: data,
+      timestamp,
+      priority: 1 // Default priority
+    };
+    
+    // Add to queue
+    detectionQueue.push(task);
+    
+    // Start processing if not already
+    if (!isProcessing) {
+      processNextTask();
     }
   } catch (error) {
-    logger.error('Failed to initialize worker threads:', error);
+    logger.error('Error enqueueing detection task:', error);
   }
 };
 
 /**
- * Process a video frame for object detection
+ * Process the next task in the queue
  */
-export const processVideoFrame = async (
-  cameraId: string,
-  streamId: string,
-  frameBuffer: Buffer,
-  timestamp: Date
-): Promise<void> => {
+const processNextTask = async (): Promise<void> => {
   try {
-    // Generate a unique key for this detection
-    const detectionKey = `${cameraId}:${streamId}:${timestamp.getTime()}`;
-    
-    // Skip if we're already processing a frame for this camera/stream
-    // and the detection interval hasn't elapsed
-    const lastDetectionKey = `${cameraId}:${streamId}`;
-    if (activeDetections.has(lastDetectionKey)) {
+    // If queue is empty, stop processing
+    if (detectionQueue.length === 0) {
+      isProcessing = false;
       return;
     }
     
-    // Mark as active
-    activeDetections.set(lastDetectionKey, true);
+    isProcessing = true;
     
-    // Convert buffer to tensor
-    const tensor = tf.node.decodeImage(frameBuffer);
+    // Sort queue by priority (highest first)
+    detectionQueue.sort((a, b) => b.priority - a.priority);
     
-    // Run detection
-    let detections: Detection[] = [];
+    // Get next task
+    const task = detectionQueue.shift();
     
-    if (workers.length > 0) {
-      // Use worker thread for detection
-      const workerIndex = Math.floor(Math.random() * workers.length);
-      const worker = workers[workerIndex];
+    if (!task) {
+      isProcessing = false;
+      return;
+    }
+    
+    // Find available worker
+    const worker = workers.find(w => !w.busy);
+    
+    if (worker) {
+      // Mark worker as busy
+      worker.busy = true;
       
-      detections = await new Promise<Detection[]>((resolve, reject) => {
-        worker.once('message', (result) => {
-          resolve(result.detections);
-        });
-        
-        worker.postMessage({
-          frameBuffer,
-          timestamp: timestamp.toISOString()
-        });
+      // Send task to worker
+      worker.postMessage({
+        taskId: task.id,
+        streamId: task.streamId,
+        cameraId: task.cameraId,
+        frameData: task.frameData,
+        timestamp: task.timestamp,
+        detectionConfig: config.detection
       });
     } else {
-      // Use main thread for detection
-      const predictions = await model.detect(tensor);
+      // No workers available, put task back in queue
+      detectionQueue.unshift(task);
       
-      // Convert predictions to our detection format
-      detections = predictions
-        .filter((pred: any) => {
-          // Filter by confidence threshold
-          return pred.score >= config.detection.minConfidence &&
-            // Filter by allowed classes
-            config.detection.classes.includes(pred.class);
-        })
-        .map((pred: any) => ({
-          class: pred.class,
-          score: pred.score,
-          bbox: {
-            x: pred.bbox[0],
-            y: pred.bbox[1],
-            width: pred.bbox[2],
-            height: pred.bbox[3]
-          }
-        }));
+      // Wait a bit before trying again
+      setTimeout(() => {
+        processNextTask();
+      }, 100);
     }
-    
-    // Clean up tensor
-    tf.dispose(tensor);
-    
-    // If we have detections, publish event and notify metadata service
-    if (detections.length > 0) {
-      logger.info(`Detected ${detections.length} objects in frame from camera ${cameraId}`);
-      
-      // Publish detection event
-      await publishDetectionEvent(cameraId, streamId, detections, timestamp, frameBuffer);
-      
-      // Notify metadata service
-      await notifyMetadataService(cameraId, streamId, detections, timestamp);
-    }
-    
-    // Clear active flag after detection interval
-    setTimeout(() => {
-      activeDetections.delete(lastDetectionKey);
-    }, config.detection.detectionInterval);
   } catch (error) {
-    logger.error(`Error processing video frame for camera ${cameraId}, stream ${streamId}:`, error);
-    activeDetections.delete(`${cameraId}:${streamId}`);
+    logger.error('Error processing detection task:', error);
+    isProcessing = false;
   }
 };
 
 /**
- * Notify metadata service about detections
+ * Handle detection result from worker
  */
-const notifyMetadataService = async (
-  cameraId: string,
+const handleDetectionResult = async (result: any): Promise<void> => {
+  try {
+    const { taskId, streamId, cameraId, timestamp, objects, processingTime } = result;
+    
+    logger.debug(`Received detection result for task ${taskId}: ${objects.length} objects detected in ${processingTime}ms`);
+    
+    // Find worker that sent the result
+    const worker = workers.find(w => w.busy);
+    
+    if (worker) {
+      // Mark worker as available
+      worker.busy = false;
+    }
+    
+    // Store detected objects in database
+    if (objects.length > 0) {
+      await storeDetectionResults(streamId, cameraId, timestamp, objects);
+      
+      // Publish detection event
+      await publishDetectionEvent(streamId, cameraId, timestamp, objects);
+    }
+    
+    // Process next task
+    processNextTask();
+  } catch (error) {
+    logger.error('Error handling detection result:', error);
+    
+    // Continue processing
+    processNextTask();
+  }
+};
+
+/**
+ * Store detection results in database
+ */
+const storeDetectionResults = async (
   streamId: string,
-  detections: Detection[],
-  timestamp: Date
+  cameraId: string,
+  timestamp: string,
+  objects: any[]
 ): Promise<void> => {
   try {
-    // Get recording ID for this stream
-    const recordingResponse = await axios.get(
-      `${config.metadataService.url}/api/cameras/${cameraId}/recordings?active=true`,
-      { timeout: 5000 }
-    );
+    // Create event
+    const event = await prisma.event.create({
+      data: {
+        type: 'OBJECT_DETECTED',
+        cameraId,
+        streamId,
+        timestamp: new Date(timestamp),
+        metadata: {
+          objectCount: objects.length
+        }
+      }
+    });
     
-    if (!recordingResponse.data || !recordingResponse.data.recordings || recordingResponse.data.recordings.length === 0) {
-      logger.warn(`No active recording found for camera ${cameraId}`);
+    // Create detected objects
+    for (const obj of objects) {
+      await prisma.detectedObject.create({
+        data: {
+          eventId: event.id,
+          label: obj.class,
+          confidence: obj.score,
+          boundingBox: {
+            x: obj.bbox[0],
+            y: obj.bbox[1],
+            width: obj.bbox[2],
+            height: obj.bbox[3]
+          }
+        }
+      });
+    }
+    
+    logger.debug(`Stored detection results for stream ${streamId}: ${objects.length} objects`);
+  } catch (error) {
+    logger.error('Error storing detection results:', error);
+  }
+};
+
+/**
+ * Publish detection event to RabbitMQ
+ */
+const publishDetectionEvent = async (
+  streamId: string,
+  cameraId: string,
+  timestamp: string,
+  objects: any[]
+): Promise<void> => {
+  try {
+    if (!rabbitmqManager) {
+      logger.error('RabbitMQ not initialized');
       return;
     }
     
-    const recordingId = recordingResponse.data.recordings[0].id;
-    
-    // Create event in metadata service
-    const eventId = uuidv4();
-    
-    // Determine event type based on detections
-    let eventType = 'motion';
-    if (detections.some(d => d.class === 'person')) {
-      eventType = 'person';
-    } else if (detections.some(d => ['car', 'truck', 'bus'].includes(d.class))) {
-      eventType = 'vehicle';
-    } else if (detections.some(d => ['dog', 'cat'].includes(d.class))) {
-      eventType = 'animal';
-    }
-    
-    // Calculate confidence as average of detection scores
-    const confidence = detections.reduce((sum, d) => sum + d.score, 0) / detections.length;
-    
-    // Create event
-    await axios.post(
-      `${config.metadataService.url}/api/events`,
-      {
-        id: eventId,
-        recordingId,
-        timestamp,
-        type: eventType,
-        confidence,
-        metadata: {
+    // Publish detection event
+    await rabbitmqManager.publish(
+      'detection',
+      `detection.${cameraId}`,
+      rabbitmqManager.createMessage(
+        MessageType.OBJECT_DETECTED,
+        {
           streamId,
-          detectionCount: detections.length
+          cameraId,
+          timestamp,
+          objects: objects.map(obj => ({
+            class: obj.class,
+            score: obj.score,
+            bbox: obj.bbox
+          }))
         }
-      },
-      { timeout: 5000 }
+      )
     );
     
-    // Create detected objects
-    for (const detection of detections) {
-      await axios.post(
-        `${config.metadataService.url}/api/detectedObjects`,
-        {
-          eventId,
-          type: detection.class,
-          confidence: detection.score,
-          boundingBox: detection.bbox
-        },
-        { timeout: 5000 }
-      );
-    }
-    
-    logger.info(`Created event ${eventId} in metadata service for camera ${cameraId}`);
+    logger.debug(`Published detection event for stream ${streamId}: ${objects.length} objects`);
   } catch (error) {
-    logger.error(`Failed to notify metadata service for camera ${cameraId}:`, error);
+    logger.error('Error publishing detection event:', error);
   }
 };
 
 /**
- * Clean up resources
+ * Get detection statistics
  */
-export const cleanup = async (): Promise<void> => {
-  try {
-    // Terminate worker threads
-    for (const worker of workers) {
-      worker.terminate();
-    }
-    
-    // Clear workers array
-    workers.length = 0;
-    
-    // Dispose of TensorFlow resources
-    tf.dispose();
-    
-    logger.info('Detection resources cleaned up');
-  } catch (error) {
-    logger.error('Error cleaning up detection resources:', error);
-  }
+export const getDetectionStats = (): any => {
+  return {
+    workers: workers.length,
+    queueLength: detectionQueue.length,
+    isProcessing,
+    workerStatus: workers.map((worker, index) => ({
+      id: index,
+      busy: !!worker.busy
+    }))
+  };
 };
