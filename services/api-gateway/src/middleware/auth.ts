@@ -1,119 +1,164 @@
 import { Request, Response, NextFunction } from 'express';
-import jwt, { SignOptions } from 'jsonwebtoken';
+import jwt from 'jsonwebtoken';
 import config from '../config/config';
 import logger from '../utils/logger';
 
-// Interface for JWT payload
-interface JwtPayload {
+/**
+ * User object returned from token verification
+ */
+export interface JWTUser {
   id: string;
   username: string;
   email: string;
   role: string;
-  iat: number;
-  exp: number;
-}
-
-// Extend Express Request interface to include user
-declare global {
-  namespace Express {
-    interface Request {
-      user?: JwtPayload;
-    }
-  }
+  iat?: number;
+  exp?: number;
 }
 
 /**
- * Middleware to authenticate JWT token
+ * Authenticate JWT token middleware
  */
 export const authenticate = (req: Request, res: Response, next: NextFunction): void => {
   try {
-    // Get token from header
+    // Get the token from Authorization header
     const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.split(' ')[1];
     
-    if (!authHeader) {
-      res.status(401).json({ error: 'No authorization token provided' });
-      return;
-    }
-    
-    // Check if token is Bearer token
-    const parts = authHeader.split(' ');
-    if (parts.length !== 2 || parts[0] !== 'Bearer') {
-      res.status(401).json({ error: 'Invalid authorization format' });
-      return;
-    }
-    
-    const token = parts[1];
-    
-    // Verify token
-    jwt.verify(token, config.jwt.secret, (err: Error | null, decoded: any) => {
-      if (err) {
-        if (err.name === 'TokenExpiredError') {
-          res.status(401).json({ error: 'Token expired' });
-        } else {
-          res.status(401).json({ error: 'Invalid token' });
+    if (!token) {
+      res.status(401).json({
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'Authentication required'
         }
-        return;
-      }
-      
-      // Set user in request
-      req.user = decoded as JwtPayload;
-      next();
-    });
+      });
+      return;
+    }
+    
+    // Verify the token
+    const user = verifyToken(token);
+    
+    if (!user) {
+      res.status(401).json({
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'Invalid token'
+        }
+      });
+      return;
+    }
+    
+    // Attach user info to request
+    req.user = user;
+    
+    next();
   } catch (error) {
     logger.error('Authentication error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    
+    res.status(401).json({
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'Invalid token'
+      }
+    });
   }
 };
 
 /**
- * Middleware to check if user has required role
+ * Authorize based on role middleware
  */
-export const authorize = (roles: string[]): (req: Request, res: Response, next: NextFunction) => void => {
+export const authorize = (roles: string[]) => {
   return (req: Request, res: Response, next: NextFunction): void => {
-    try {
-      if (!req.user) {
-        res.status(401).json({ error: 'User not authenticated' });
-        return;
-      }
-      
-      if (!roles.includes(req.user.role)) {
-        res.status(403).json({ error: 'Insufficient permissions' });
-        return;
-      }
-      
-      next();
-    } catch (error) {
-      logger.error('Authorization error:', error);
-      res.status(500).json({ error: 'Internal server error' });
+    if (!req.user) {
+      res.status(401).json({
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'Authentication required'
+        }
+      });
+      return;
     }
+    
+    if (!roles.includes(req.user.role)) {
+      res.status(403).json({
+        error: {
+          code: 'FORBIDDEN',
+          message: 'Insufficient permissions'
+        }
+      });
+      return;
+    }
+    
+    next();
   };
+};
+
+/**
+ * Verify JWT token and return user info
+ */
+export const verifyToken = (token: string): JWTUser | null => {
+  try {
+    // Verify the token
+    const decoded = jwt.verify(token, config.jwt.secret) as JWTUser;
+    
+    return {
+      id: decoded.id,
+      username: decoded.username,
+      email: decoded.email,
+      role: decoded.role,
+      iat: decoded.iat,
+      exp: decoded.exp
+    };
+  } catch (error) {
+    logger.error('Token verification error:', error);
+    return null;
+  }
 };
 
 /**
  * Generate JWT token
  */
-export const generateToken = (payload: Omit<JwtPayload, 'iat' | 'exp'>): string => {
-  const options: SignOptions = { expiresIn: config.jwt.expiresIn };
-  return jwt.sign(payload, config.jwt.secret, options);
+export const generateToken = (user: Omit<JWTUser, 'iat' | 'exp'>): string => {
+  return jwt.sign(user, config.jwt.secret, {
+    expiresIn: config.jwt.expiresIn
+  });
 };
 
 /**
  * Generate refresh token
  */
-export const generateRefreshToken = (payload: Omit<JwtPayload, 'iat' | 'exp'>): string => {
-  const options: SignOptions = { expiresIn: config.jwt.refreshExpiresIn };
-  return jwt.sign(payload, config.jwt.secret, options);
+export const generateRefreshToken = (user: Omit<JWTUser, 'iat' | 'exp'>): string => {
+  return jwt.sign(user, config.jwt.secret, {
+    expiresIn: config.jwt.refreshExpiresIn
+  });
 };
 
 /**
  * Verify refresh token
  */
-export const verifyRefreshToken = (token: string): JwtPayload | null => {
+export const verifyRefreshToken = (token: string): JWTUser | null => {
   try {
-    const decoded = jwt.verify(token, config.jwt.secret) as JwtPayload;
-    return decoded;
+    // Verify the token
+    const decoded = jwt.verify(token, config.jwt.secret) as JWTUser;
+    
+    return {
+      id: decoded.id,
+      username: decoded.username,
+      email: decoded.email,
+      role: decoded.role,
+      iat: decoded.iat,
+      exp: decoded.exp
+    };
   } catch (error) {
     logger.error('Refresh token verification error:', error);
     return null;
   }
 };
+
+// Extend Express Request interface to include user
+declare global {
+  namespace Express {
+    interface Request {
+      user?: JWTUser;
+    }
+  }
+}

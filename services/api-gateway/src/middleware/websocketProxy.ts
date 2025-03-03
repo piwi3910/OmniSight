@@ -1,146 +1,264 @@
-import { Server } from 'http';
-import { Server as WebSocketServer } from 'socket.io';
-import { createProxyMiddleware } from 'http-proxy-middleware';
-import { parse } from 'url';
+import { Server as SocketIOServer, Socket } from 'socket.io';
+import { verifyToken } from './auth';
+import axios from 'axios';
 import config from '../config/config';
 import logger from '../utils/logger';
-import { IncomingMessage } from 'http';
-
-// Define the valid service types to prevent type errors
-type ServiceType = 'events' | 'cameras' | 'recordings' | 'detection';
 
 /**
- * Configure WebSocket proxying from API Gateway to backend services
- * 
- * This allows clients to connect to a single WebSocket endpoint,
- * and the API Gateway forwards the connections to the appropriate service.
+ * WebSocket proxy implementation for routing WebSocket connections to appropriate microservices
  */
-export class WebSocketProxyManager {
-  private io: WebSocketServer;
-  private server: Server;
-  // Define a properly typed service map
-  private serviceMap: Record<ServiceType, string> = {
-    'events': config.services.metadataEvents.url,
-    'cameras': config.services.streamIngestion.url,
-    'recordings': config.services.recording.url,
-    'detection': config.services.objectDetection.url
-  };
 
-  constructor(server: Server) {
-    this.server = server;
-    
-    // Create Socket.IO server
-    this.io = new WebSocketServer(server, {
-      path: '/api/v1/ws',
-      cors: {
-        origin: config.server.corsOrigin,
-        methods: ['GET', 'POST'],
-        credentials: true
-      }
-    });
-    
-    logger.info('WebSocket proxy initialized');
-    
-    // Configure the proxy
-    this.setupProxy();
-  }
+let io: SocketIOServer;
+
+/**
+ * Initialize the WebSocket server
+ * @param socketServer - Socket.IO server instance
+ */
+export const initializeWebSocketServer = (socketServer: SocketIOServer): void => {
+  io = socketServer;
   
-  /**
-   * Set up the WebSocket proxy
-   */
-  private setupProxy(): void {
-    // Add the upgrade handler to the HTTP server
-    this.server.on('upgrade', (req: IncomingMessage, socket: any, head: any) => {
-      // Parse the URL to get the pathname
-      const { pathname } = parse(req.url || '', true);
+  // Set up connection handler
+  io.on('connection', handleConnection);
+  
+  logger.info('WebSocket server initialized');
+};
+
+/**
+ * Handle new WebSocket connections
+ * @param socket - Socket.IO socket
+ */
+const handleConnection = async (socket: Socket): Promise<void> => {
+  try {
+    // Extract token from query parameters
+    const token = socket.handshake.query.token as string;
+    
+    if (!token) {
+      logger.warn('WebSocket connection attempt without token');
+      socket.emit('error', { message: 'Authentication required' });
+      socket.disconnect(true);
+      return;
+    }
+    
+    // Verify token
+    try {
+      const user = verifyToken(token);
       
-      // Check if this is a WebSocket request we should handle
-      if (!pathname || !pathname.startsWith('/api/v1/ws')) {
-        // Not a WebSocket request for our endpoint
-        socket.destroy();
+      if (!user) {
+        logger.warn('WebSocket connection attempt with invalid token');
+        socket.emit('error', { message: 'Invalid token' });
+        socket.disconnect(true);
         return;
       }
       
-      // Get the target service from the query parameter
-      const url = parse(req.url || '', true);
-      const service = url.query.service as string;
+      // Attach user info to socket
+      (socket as any).user = user;
       
-      // Validate service parameter
-      if (!this.isValidService(service)) {
-        logger.error(`Invalid service requested: ${service}`);
-        socket.destroy();
+      logger.info(`WebSocket connection established for user ${user.id}`);
+      
+      // Set up event listeners
+      setupEventListeners(socket);
+      
+    } catch (error) {
+      logger.error('Error verifying token:', error);
+      socket.emit('error', { message: 'Authentication failed' });
+      socket.disconnect(true);
+    }
+  } catch (error) {
+    logger.error('Error handling WebSocket connection:', error);
+    socket.emit('error', { message: 'Server error' });
+    socket.disconnect(true);
+  }
+};
+
+/**
+ * Set up event listeners for the socket
+ * @param socket - Socket.IO socket
+ */
+const setupEventListeners = (socket: Socket): void => {
+  // Handle subscribe requests
+  socket.on('subscribe', async (data) => {
+    try {
+      const { channel } = data;
+      const user = (socket as any).user;
+      
+      if (!channel) {
+        socket.emit('error', { message: 'Channel is required for subscription' });
         return;
       }
       
-      const validService = service as ServiceType;
+      logger.info(`User ${user.id} subscribing to channel ${channel}`);
       
-      // Select the target WebSocket server
-      const targetUrl = this.serviceMap[validService];
-      logger.info(`Proxying WebSocket connection to service: ${validService} (${targetUrl})`);
+      // Check if user has permission to subscribe to this channel
+      const hasPermission = await checkChannelPermission(channel, user);
       
-      // Create proxy for this connection
-      const proxy = createProxyMiddleware({
-        target: targetUrl,
-        ws: true,
-        changeOrigin: true,
-        pathRewrite: {
-          // Rewrite the path to the target service
-          '^/api/v1/ws': '/socket.io'
-        },
-        logLevel: 'warn',
-        onError: (err) => {
-          logger.error(`WebSocket proxy error: ${err.message}`);
-          if (!socket.destroyed) {
-            socket.destroy();
-          }
-        }
-      });
-      
-      // Use the WebSocket upgrade handler directly
-      // This bypasses express middleware chain
-      const wsProxy = proxy as any;
-      if (wsProxy.upgrade) {
-        wsProxy.upgrade(req, socket, head);
-      } else {
-        logger.error('WebSocket upgrade handler not available');
-        socket.destroy();
+      if (!hasPermission) {
+        logger.warn(`User ${user.id} denied access to channel ${channel}`);
+        socket.emit('error', { message: 'Access denied to this channel' });
+        return;
       }
+      
+      // Join the channel
+      socket.join(channel);
+      socket.emit('subscribed', { channel });
+      
+      logger.info(`User ${user.id} subscribed to channel ${channel}`);
+    } catch (error) {
+      logger.error('Error handling subscribe request:', error);
+      socket.emit('error', { message: 'Failed to subscribe to channel' });
+    }
+  });
+  
+  // Handle unsubscribe requests
+  socket.on('unsubscribe', (data) => {
+    try {
+      const { channel } = data;
+      const user = (socket as any).user;
+      
+      if (!channel) {
+        socket.emit('error', { message: 'Channel is required for unsubscription' });
+        return;
+      }
+      
+      // Leave the channel
+      socket.leave(channel);
+      socket.emit('unsubscribed', { channel });
+      
+      logger.info(`User ${user.id} unsubscribed from channel ${channel}`);
+    } catch (error) {
+      logger.error('Error handling unsubscribe request:', error);
+      socket.emit('error', { message: 'Failed to unsubscribe from channel' });
+    }
+  });
+  
+  // Handle heartbeat
+  socket.on('heartbeat', () => {
+    socket.emit('heartbeat');
+  });
+  
+  // Handle disconnect
+  socket.on('disconnect', () => {
+    const user = (socket as any).user;
+    if (user) {
+      logger.info(`WebSocket disconnected for user ${user.id}`);
+    } else {
+      logger.info('WebSocket disconnected for unknown user');
+    }
+  });
+};
+
+/**
+ * Check if a user has permission to access a channel
+ * @param channel - Channel name
+ * @param user - User object
+ * @returns Promise resolving to boolean indicating permission
+ */
+const checkChannelPermission = async (channel: string, user: any): Promise<boolean> => {
+  try {
+    // Parse channel to determine appropriate service
+    const [resourceType, resourceId] = channel.split(':');
+    
+    if (!resourceType || !resourceId) {
+      logger.warn(`Invalid channel format: ${channel}`);
+      return false;
+    }
+    
+    // Map resource type to service
+    const serviceUrlMap: Record<string, string> = {
+      'camera': config.services.metadataEvents.url,
+      'event': config.services.metadataEvents.url,
+      'recording': config.services.recording.url,
+      'stream': config.services.streamIngestion.url
+    };
+    
+    const serviceUrl = serviceUrlMap[resourceType];
+    
+    if (!serviceUrl) {
+      logger.warn(`Unknown resource type in channel: ${resourceType}`);
+      return false;
+    }
+    
+    // Check permission with appropriate service
+    const response = await axios.get(`${serviceUrl}/api/permissions/check`, {
+      params: {
+        resourceType,
+        resourceId,
+        userId: user.id
+      },
+      headers: {
+        'x-service-name': 'api-gateway'
+      },
+      timeout: 5000
     });
     
-    logger.info('WebSocket proxy routes configured');
+    return response.data.hasPermission === true;
+  } catch (error) {
+    logger.error('Error checking channel permission:', error);
+    // Default to false for security
+    return false;
   }
+};
 
-  /**
-   * Check if a service string is a valid service type
-   */
-  private isValidService(service: string): service is ServiceType {
-    return service === 'events' || 
-           service === 'cameras' || 
-           service === 'recordings' || 
-           service === 'detection';
+/**
+ * Broadcast a message to a channel
+ * @param channel - Channel to broadcast to
+ * @param eventType - Event type
+ * @param data - Event data
+ */
+export const broadcastToChannel = (channel: string, eventType: string, data: any): void => {
+  if (!io) {
+    logger.error('Attempted to broadcast before WebSocket server was initialized');
+    return;
   }
-
-  /**
-   * Get the WebSocket server instance
-   */
-  public getServer(): WebSocketServer {
-    return this.io;
-  }
-}
-
-// Create and export a WebSocket proxy manager
-export const websocketProxy = {
-  manager: null as WebSocketProxyManager | null,
   
-  // Initialize the WebSocket proxy
-  init(server: Server): WebSocketProxyManager {
-    this.manager = new WebSocketProxyManager(server);
-    return this.manager;
-  },
-  
-  // Proxy upgrade handler for the HTTP server
-  upgrade: (req: IncomingMessage, socket: any, head: any) => {
-    // This function is called from index.ts to handle WebSocket upgrades
-    // The actual implementation is in the WebSocketProxyManager
+  logger.debug(`Broadcasting ${eventType} to channel ${channel}`);
+  io.to(channel).emit(eventType, {
+    type: eventType,
+    timestamp: new Date().toISOString(),
+    data
+  });
+};
+
+/**
+ * Send a message to a specific user
+ * @param userId - User ID to send to
+ * @param eventType - Event type
+ * @param data - Event data
+ */
+export const sendToUser = (userId: string, eventType: string, data: any): void => {
+  if (!io) {
+    logger.error('Attempted to send message before WebSocket server was initialized');
+    return;
   }
+  
+  // Find all sockets for this user
+  const sockets = Array.from(io.sockets.sockets.values())
+    .filter(socket => (socket as any).user && (socket as any).user.id === userId);
+  
+  if (sockets.length === 0) {
+    logger.warn(`No active connections found for user ${userId}`);
+    return;
+  }
+  
+  logger.debug(`Sending ${eventType} to user ${userId}`);
+  
+  // Send to all user's connections
+  sockets.forEach(socket => {
+    socket.emit(eventType, {
+      type: eventType,
+      timestamp: new Date().toISOString(),
+      data
+    });
+  });
+};
+
+/**
+ * Get WebSocket server instance
+ * @returns Socket.IO server instance
+ */
+export const getSocketIOServer = (): SocketIOServer => {
+  if (!io) {
+    throw new Error('WebSocket server not initialized');
+  }
+  
+  return io;
 };

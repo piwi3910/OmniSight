@@ -2,96 +2,107 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
-import compression from 'compression';
-import http from 'http';
+import { createServer } from 'http';
+import { Server as SocketIOServer } from 'socket.io';
+import routes from './routes/routes';
 import config from './config/config';
 import logger from './utils/logger';
-import routes from './routes/routes';
-import { websocketProxy } from './middleware/proxy';
-import { setupSwagger } from './utils/swagger';
+import { initializeWebSocketServer } from './middleware/websocketProxy';
+import { errorHandler } from '@omnisight/shared';
+import { initializeHealthCheck, createServiceHealthMiddleware } from './utils/healthCheck';
 
-// Create Express app
+// Create Express application
 const app = express();
-const port = config.server.port;
 
 // Create HTTP server
-const server = http.createServer(app);
+const server = createServer(app);
 
-// Middleware
-app.use(cors({
-  origin: config.server.corsOrigin,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
-app.use(helmet());
-app.use(morgan('combined'));
-app.use(compression());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'ok', 
-    service: 'api-gateway',
-    version: '1.0.0',
-    environment: config.server.env
-  });
+// Create Socket.IO server
+const io = new SocketIOServer(server, {
+  cors: {
+    origin: config.server.corsOrigin,
+    methods: ['GET', 'POST'],
+    credentials: true
+  }
 });
 
-// Setup Swagger
-setupSwagger(app);
+// Initialize Socket.IO for WebSocket proxy
+initializeWebSocketServer(io);
+
+// Middleware
+app.use(helmet()); // Security headers
+app.use(cors({ origin: config.server.corsOrigin })); // CORS
+app.use(express.json()); // JSON parsing
+app.use(express.urlencoded({ extended: true })); // URL-encoded parsing
+
+// Logging middleware
+if (config.logging.logRequests) {
+  app.use(morgan('combined', { stream: { write: message => logger.info(message.trim()) } }));
+}
+
+// Health check routes
+app.use(initializeHealthCheck());
+
+// Service health middleware - checks if target service is healthy before proxying
+app.use(createServiceHealthMiddleware());
 
 // API routes
 app.use('/api/v1', routes);
 
-// WebSocket proxy
-if (websocketProxy.upgrade) {
-  server.on('upgrade', websocketProxy.upgrade);
-}
-
 // Error handling middleware
-app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  logger.error(`Error: ${err.message}`);
-  res.status(500).json({ error: 'Internal Server Error' });
-});
+app.use(errorHandler);
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({ error: 'Not Found' });
+  res.status(404).json({
+    error: {
+      code: 'RESOURCE_NOT_FOUND',
+      message: 'The requested resource was not found'
+    }
+  });
 });
 
 // Start server
-const startServer = async () => {
-  try {
-    server.listen(port, () => {
-      logger.info(`API Gateway running on port ${port}`);
-      logger.info(`Environment: ${config.server.env}`);
-      logger.info(`CORS Origin: ${config.server.corsOrigin}`);
-    });
-  } catch (error) {
-    logger.error('Failed to start server:', error);
-    process.exit(1);
-  }
-};
+const PORT = config.server.port;
+server.listen(PORT, () => {
+  logger.info(`API Gateway listening on port ${PORT} in ${config.server.env} mode`);
+  logger.info(`Health check endpoint available at http://localhost:${PORT}/health`);
+});
 
-// Handle graceful shutdown
+// Handle server errors
+server.on('error', (error: any) => {
+  if (error.code === 'EADDRINUSE') {
+    logger.error(`Port ${PORT} is already in use`);
+  } else {
+    logger.error('Server error:', error);
+  }
+  process.exit(1);
+});
+
+// Handle unhandled rejections
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught Exception:', error);
+  process.exit(1);
+});
+
+// Graceful shutdown
 process.on('SIGTERM', () => {
   logger.info('SIGTERM received, shutting down gracefully');
-  
   server.close(() => {
     logger.info('HTTP server closed');
     process.exit(0);
   });
   
-  // Force close after 10s
+  // Force shutdown after 10 seconds
   setTimeout(() => {
-    logger.error('Forcing shutdown after timeout');
+    logger.error('Forced shutdown after timeout');
     process.exit(1);
   }, 10000);
 });
 
-// Start the server
-startServer();
-
-export default app;
+export default server;

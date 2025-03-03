@@ -25,11 +25,13 @@ This document outlines the implementation plan for completing the OmniSight vide
 - Authentication endpoints completed
 - RabbitMQ message standardization
 - Database indexing and optimization
+- Health check endpoints
+- Service monitoring
 
 ### ⚠️ Partially Implemented
 
-- Health check endpoints
-- Service monitoring
+- Service monitoring dashboard
+- Automated testing
 
 ### ❌ Missing Components
 
@@ -81,8 +83,8 @@ This document outlines the implementation plan for completing the OmniSight vide
 - [x] Add proper error handling for service communication
 - [x] Create shared middleware for error handling
 - [x] Standardize RabbitMQ message formats
-- [ ] Implement retry logic for failed messages
-- [ ] Set up health checks between services
+- [x] Implement retry logic for failed messages
+- [x] Set up health checks between services
 
 #### 1.4 Development Infrastructure
 
