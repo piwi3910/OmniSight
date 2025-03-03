@@ -29,7 +29,9 @@ import {
   CardContent,
   Grid,
   SelectChangeEvent,
-  Alert
+  Alert,
+  Tabs,
+  Tab
 } from '@mui/material';
 import {
   Visibility as VisibilityIcon,
@@ -37,9 +39,16 @@ import {
   Person as PersonIcon,
   DirectionsCar as DirectionsCarIcon,
   Pets as PetsIcon,
-  NotificationsActive as NotificationsActiveIcon
+  NotificationsActive as NotificationsActiveIcon,
+  Download as DownloadIcon,
+  Timeline as TimelineIcon,
+  List as ListIcon,
+  GridView as GridViewIcon
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
+import EventTimeline from '../components/EventTimeline';
+import AdvancedEventSearch from '../components/AdvancedEventSearch';
+import { format } from 'date-fns';
 
 // Mock data for initial development
 const mockEvents = [
@@ -52,6 +61,51 @@ const mockEvents = [
   { id: '7', type: 'vehicle', cameraName: 'Driveway', timestamp: '2023-01-01T12:30:00Z', confidence: 0.91, thumbnail: 'https://via.placeholder.com/300x200?text=Vehicle+Event' },
   { id: '8', type: 'motion', cameraName: 'Garage', timestamp: '2023-01-01T12:35:00Z', confidence: 0.78, thumbnail: 'https://via.placeholder.com/300x200?text=Motion+Event' }
 ];
+
+interface TabPanelProps {
+  children?: React.ReactNode;
+  index: number;
+  value: number;
+}
+
+// Interface for filters
+interface EventFilters {
+  eventType: string;
+  cameraId: string;
+  startDate: string;
+  endDate: string;
+  minConfidence: string;
+  metadata?: {
+    objectClasses?: string[];
+    hasVehicle?: boolean;
+    hasPerson?: boolean;
+    hasAnimal?: boolean;
+    minObjects?: number;
+    maxObjects?: number;
+    objectPosition?: string;
+  };
+  [key: string]: any;
+}
+
+function TabPanel(props: TabPanelProps) {
+  const { children, value, index, ...other } = props;
+
+  return (
+    <div
+      role="tabpanel"
+      hidden={value !== index}
+      id={`events-tabpanel-${index}`}
+      aria-labelledby={`events-tab-${index}`}
+      {...other}
+    >
+      {value === index && (
+        <Box sx={{ py: 3 }}>
+          {children}
+        </Box>
+      )}
+    </div>
+  );
+}
 
 const Events: React.FC = () => {
   // State
@@ -66,14 +120,25 @@ const Events: React.FC = () => {
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
   const [openEventDialog, setOpenEventDialog] = useState(false);
   const [viewMode, setViewMode] = useState<'table' | 'grid'>('grid');
+  const [tabValue, setTabValue] = useState(0);
+  const [exportLoading, setExportLoading] = useState(false);
   
   // Filter state
-  const [filters, setFilters] = useState({
+  const [filters, setFilters] = useState<EventFilters>({
     eventType: 'all',
     cameraId: 'all',
     startDate: '',
     endDate: '',
-    minConfidence: '0'
+    minConfidence: '0',
+    metadata: {
+      objectClasses: [],
+      hasVehicle: false,
+      hasPerson: false,
+      hasAnimal: false,
+      minObjects: 1,
+      maxObjects: 10,
+      objectPosition: 'any'
+    }
   });
   
   const { token } = useAuth();
@@ -141,6 +206,25 @@ const Events: React.FC = () => {
       
       if (parseFloat(filters.minConfidence) > 0) {
         params.minConfidence = parseFloat(filters.minConfidence);
+      }
+
+      // Add metadata filters if they exist
+      if (filters.metadata) {
+        if (filters.metadata.objectClasses && filters.metadata.objectClasses.length > 0) {
+          params.objectClasses = filters.metadata.objectClasses.join(',');
+        }
+        
+        if (filters.metadata.minObjects) {
+          params.minObjects = filters.metadata.minObjects;
+        }
+        
+        if (filters.metadata.maxObjects) {
+          params.maxObjects = filters.metadata.maxObjects;
+        }
+        
+        if (filters.metadata.objectPosition && filters.metadata.objectPosition !== 'any') {
+          params.objectPosition = filters.metadata.objectPosition;
+        }
       }
       
       const response = await axios.get(`${API_URL}/events`, {
@@ -222,6 +306,90 @@ const Events: React.FC = () => {
     setViewMode(viewMode === 'table' ? 'grid' : 'table');
   };
 
+  // Tab change handler
+  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
+    setTabValue(newValue);
+  };
+
+  // Handle search from AdvancedEventSearch
+  const handleSearch = (newFilters: EventFilters) => {
+    setFilters(newFilters);
+    setPage(0);
+    fetchEvents();
+  };
+
+  // Handle date range change from timeline
+  const handleTimelineRangeChange = (startDate: Date, endDate: Date) => {
+    setFilters({
+      ...filters,
+      startDate: startDate.toISOString(),
+      endDate: endDate.toISOString()
+    });
+    setPage(0);
+    fetchEvents();
+  };
+
+  // Handle export events
+  const handleExportEvents = async (exportFormat: string) => {
+    if (!token) return;
+    
+    setExportLoading(true);
+    
+    try {
+      // Build query parameters for export
+      const params: any = { format: exportFormat };
+      
+      // Apply all current filters to export
+      if (filters.eventType !== 'all') {
+        params.type = filters.eventType;
+      }
+      
+      if (filters.cameraId !== 'all') {
+        params.cameraId = filters.cameraId;
+      }
+      
+      if (filters.startDate) {
+        params.startDate = new Date(filters.startDate).toISOString();
+      }
+      
+      if (filters.endDate) {
+        params.endDate = new Date(filters.endDate).toISOString();
+      }
+      
+      if (parseFloat(filters.minConfidence) > 0) {
+        params.minConfidence = parseFloat(filters.minConfidence);
+      }
+      
+      // Export endpoint with proper params
+      const response = await axios.get(`${API_URL}/events/export`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params,
+        responseType: 'blob'
+      });
+      
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      
+      // Set filename based on format
+      const now = new Date();
+      const dateStr = format(now, 'yyyy-MM-dd');
+      link.download = `events-export-${dateStr}.${exportFormat}`;
+      
+      // Trigger download
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error exporting events:', error);
+      setError('Failed to export events. Please try again.');
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
   // Format date for display
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -277,22 +445,55 @@ const Events: React.FC = () => {
           <Button
             variant="outlined"
             color="primary"
-            sx={{ mr: 2 }}
-            onClick={toggleViewMode}
-            disabled={loading}
+            sx={{ mr: 1 }}
+            startIcon={<DownloadIcon />}
+            onClick={() => handleExportEvents('csv')}
+            disabled={exportLoading || events.length === 0}
           >
-            {viewMode === 'table' ? 'Grid View' : 'Table View'}
+            {exportLoading ? 'Exporting...' : 'Export'}
           </Button>
           <Button
             variant="outlined"
             color="primary"
-            startIcon={<FilterListIcon />}
-            onClick={handleOpenFilterDialog}
-            disabled={loading}
+            sx={{ mr: 2 }}
+            onClick={toggleViewMode}
+            disabled={loading || tabValue !== 0}
+            startIcon={viewMode === 'table' ? <GridViewIcon /> : <ListIcon />}
           >
-            Filter
+            {viewMode === 'table' ? 'Grid View' : 'Table View'}
           </Button>
         </Box>
+      </Box>
+      
+      {/* Advanced search component */}
+      <AdvancedEventSearch 
+        cameras={cameras}
+        onSearch={handleSearch}
+        initialFilters={filters}
+        onExport={handleExportEvents}
+      />
+      
+      {/* Tabs for different views */}
+      <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+        <Tabs 
+          value={tabValue} 
+          onChange={handleTabChange} 
+          aria-label="event views"
+          centered
+        >
+          <Tab 
+            icon={<ListIcon />} 
+            label="List View" 
+            id="events-tab-0" 
+            aria-controls="events-tabpanel-0" 
+          />
+          <Tab 
+            icon={<TimelineIcon />} 
+            label="Timeline View" 
+            id="events-tab-1" 
+            aria-controls="events-tabpanel-1" 
+          />
+        </Tabs>
       </Box>
       
       {/* Error message */}
@@ -314,26 +515,83 @@ const Events: React.FC = () => {
         </Box>
       )}
       
-      {viewMode === 'table' ? (
-        <>
-          <TableContainer component={Paper}>
-            <Table sx={{ minWidth: 650 }} aria-label="events table">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Type</TableCell>
-                  <TableCell>Camera</TableCell>
-                  <TableCell>Timestamp</TableCell>
-                  <TableCell>Confidence</TableCell>
-                  <TableCell align="right">Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {events
-                  .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-                  .map((event) => (
-                    <TableRow key={event.id}>
-                      <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+      {/* List View Tab */}
+      <TabPanel value={tabValue} index={0}>
+        {viewMode === 'table' ? (
+          <>
+            <TableContainer component={Paper}>
+              <Table sx={{ minWidth: 650 }} aria-label="events table">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Type</TableCell>
+                    <TableCell>Camera</TableCell>
+                    <TableCell>Timestamp</TableCell>
+                    <TableCell>Confidence</TableCell>
+                    <TableCell align="right">Actions</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {events
+                    .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+                    .map((event) => (
+                      <TableRow key={event.id}>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                            <Box sx={{ mr: 1 }}>
+                              {getEventIcon(event.type)}
+                            </Box>
+                            <Chip
+                              label={event.type.charAt(0).toUpperCase() + event.type.slice(1)}
+                              color={getEventColor(event.type) as any}
+                              size="small"
+                            />
+                          </Box>
+                        </TableCell>
+                        <TableCell>{event.cameraName}</TableCell>
+                        <TableCell>{formatDate(event.timestamp)}</TableCell>
+                        <TableCell>{`${Math.round(event.confidence * 100)}%`}</TableCell>
+                        <TableCell align="right">
+                          <IconButton
+                            color="primary"
+                            aria-label="view event"
+                            onClick={() => handleViewEvent(event)}
+                          >
+                            <VisibilityIcon />
+                          </IconButton>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+            
+            <TablePagination
+              rowsPerPageOptions={[5, 10, 25, 50]}
+              component="div"
+              count={totalCount}
+              rowsPerPage={rowsPerPage}
+              page={page}
+              onPageChange={handleChangePage}
+              onRowsPerPageChange={handleChangeRowsPerPage}
+              labelDisplayedRows={({ from, to, count }) => `${from}-${to} of ${count !== -1 ? count : `more than ${to}`}`}
+            />
+          </>
+        ) : (
+          <>
+            <Grid container spacing={3}>
+              {events
+                .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
+                .map((event) => (
+                  <Grid item xs={12} sm={6} md={4} lg={3} key={event.id}>
+                    <Card>
+                      <CardMedia
+                        component="img"
+                        height="140"
+                        image={event.thumbnail}
+                        alt={`${event.type} event`}
+                      />
+                      <CardContent>
+                        <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                           <Box sx={{ mr: 1 }}>
                             {getEventIcon(event.type)}
                           </Box>
@@ -343,195 +601,64 @@ const Events: React.FC = () => {
                             size="small"
                           />
                         </Box>
-                      </TableCell>
-                      <TableCell>{event.cameraName}</TableCell>
-                      <TableCell>{formatDate(event.timestamp)}</TableCell>
-                      <TableCell>{`${Math.round(event.confidence * 100)}%`}</TableCell>
-                      <TableCell align="right">
-                        <IconButton
-                          color="primary"
-                          aria-label="view event"
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                          Camera: {event.cameraName}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                          Time: {formatDate(event.timestamp)}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                          Confidence: {`${Math.round(event.confidence * 100)}%`}
+                        </Typography>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          startIcon={<VisibilityIcon />}
                           onClick={() => handleViewEvent(event)}
                         >
-                          <VisibilityIcon />
-                        </IconButton>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
-          
-          <TablePagination
-            rowsPerPageOptions={[5, 10, 25, 50]}
-            component="div"
-            count={totalCount}
-            rowsPerPage={rowsPerPage}
-            page={page}
-            onPageChange={handleChangePage}
-            onRowsPerPageChange={handleChangeRowsPerPage}
-            labelDisplayedRows={({ from, to, count }) => `${from}-${to} of ${count !== -1 ? count : `more than ${to}`}`}
-          />
-        </>
-      ) : (
-        <>
-          <Grid container spacing={3}>
-            {events
-              .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-              .map((event) => (
-                <Grid item xs={12} sm={6} md={4} lg={3} key={event.id}>
-                  <Card>
-                    <CardMedia
-                      component="img"
-                      height="140"
-                      image={event.thumbnail}
-                      alt={`${event.type} event`}
-                    />
-                    <CardContent>
-                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                        <Box sx={{ mr: 1 }}>
-                          {getEventIcon(event.type)}
-                        </Box>
-                        <Chip
-                          label={event.type.charAt(0).toUpperCase() + event.type.slice(1)}
-                          color={getEventColor(event.type) as any}
-                          size="small"
-                        />
-                      </Box>
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                        Camera: {event.cameraName}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                        Time: {formatDate(event.timestamp)}
-                      </Typography>
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                        Confidence: {`${Math.round(event.confidence * 100)}%`}
-                      </Typography>
-                      <Button
-                        variant="outlined"
-                        size="small"
-                        startIcon={<VisibilityIcon />}
-                        onClick={() => handleViewEvent(event)}
-                      >
-                        View Details
-                      </Button>
-                    </CardContent>
-                  </Card>
-                </Grid>
-              ))}
-          </Grid>
-          
-          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
-            <TablePagination
-              rowsPerPageOptions={[4, 8, 12, 16, 24]}
-              component="div"
-              count={totalCount}
-              rowsPerPage={rowsPerPage}
-              page={page}
-              onPageChange={handleChangePage}
-              onRowsPerPageChange={handleChangeRowsPerPage}
-              labelDisplayedRows={({ from, to, count }) => `${from}-${to} of ${count !== -1 ? count : `more than ${to}`}`}
-            />
-          </Box>
-        </>
-      )}
+                          View Details
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                ))}
+            </Grid>
+            
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+              <TablePagination
+                rowsPerPageOptions={[4, 8, 12, 16, 24]}
+                component="div"
+                count={totalCount}
+                rowsPerPage={rowsPerPage}
+                page={page}
+                onPageChange={handleChangePage}
+                onRowsPerPageChange={handleChangeRowsPerPage}
+                labelDisplayedRows={({ from, to, count }) => `${from}-${to} of ${count !== -1 ? count : `more than ${to}`}`}
+              />
+            </Box>
+          </>
+        )}
+      </TabPanel>
       
-      {/* Filter Dialog */}
-      <Dialog open={openFilterDialog} onClose={handleCloseFilterDialog} maxWidth="sm" fullWidth>
-        <DialogTitle>Filter Events</DialogTitle>
-        <DialogContent>
-          <FormControl fullWidth margin="normal">
-            <InputLabel id="event-type-select-label">Event Type</InputLabel>
-            <Select
-              labelId="event-type-select-label"
-              id="event-type-select"
-              name="eventType"
-              value={filters.eventType}
-              onChange={handleSelectFilterChange}
-              label="Event Type"
-            >
-              <MenuItem value="all">All Types</MenuItem>
-              <MenuItem value="motion">Motion</MenuItem>
-              <MenuItem value="person">Person</MenuItem>
-              <MenuItem value="vehicle">Vehicle</MenuItem>
-              <MenuItem value="animal">Animal</MenuItem>
-            </Select>
-          </FormControl>
-          
-          <FormControl fullWidth margin="normal">
-            <InputLabel id="camera-select-label">Camera</InputLabel>
-            <Select
-              labelId="camera-select-label"
-              id="camera-select"
-              name="cameraId"
-              value={filters.cameraId}
-              onChange={handleSelectFilterChange}
-              label="Camera"
-            >
-              <MenuItem value="all">All Cameras</MenuItem>
-              {cameras.map(camera => (
-                <MenuItem key={camera.id} value={camera.id}>
-                  {camera.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          
-          <TextField
-            margin="normal"
-            name="startDate"
-            label="Start Date"
-            type="datetime-local"
-            fullWidth
-            value={filters.startDate}
-            onChange={handleTextFilterChange}
-            InputLabelProps={{
-              shrink: true,
-            }}
-          />
-          
-          <TextField
-            margin="normal"
-            name="endDate"
-            label="End Date"
-            type="datetime-local"
-            fullWidth
-            value={filters.endDate}
-            onChange={handleTextFilterChange}
-            InputLabelProps={{
-              shrink: true,
-            }}
-          />
-          
-          <FormControl fullWidth margin="normal">
-            <InputLabel id="confidence-select-label">Minimum Confidence</InputLabel>
-            <Select
-              labelId="confidence-select-label"
-              id="confidence-select"
-              name="minConfidence"
-              value={filters.minConfidence}
-              onChange={handleSelectFilterChange}
-              label="Minimum Confidence"
-            >
-              <MenuItem value="0">Any</MenuItem>
-              <MenuItem value="0.5">50%</MenuItem>
-              <MenuItem value="0.7">70%</MenuItem>
-              <MenuItem value="0.9">90%</MenuItem>
-            </Select>
-          </FormControl>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseFilterDialog}>Cancel</Button>
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={handleApplyFilters}
-            disabled={loading}
-          >
-            {loading ? <CircularProgress size={24} /> : 'Apply Filters'}
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Timeline View Tab */}
+      <TabPanel value={tabValue} index={1}>
+        <EventTimeline 
+          events={events}
+          onEventClick={handleViewEvent}
+          onRangeChange={handleTimelineRangeChange}
+          onFilter={(filterType, value) => {
+            if (filterType === 'eventType') {
+              setFilters({
+                ...filters,
+                eventType: value
+              });
+              setPage(0);
+              fetchEvents();
+            }
+          }}
+          loading={loading}
+        />
+      </TabPanel>
       
       {/* Event Detail Dialog */}
       {selectedEvent && (
@@ -564,14 +691,48 @@ const Events: React.FC = () => {
                 <Typography variant="body2" paragraph>
                   <strong>Confidence:</strong> {`${Math.round(selectedEvent.confidence * 100)}%`}
                 </Typography>
+                {selectedEvent.metadata && (
+                  <>
+                    <Typography variant="subtitle1" gutterBottom sx={{ mt: 2 }}>
+                      Metadata
+                    </Typography>
+                    {Object.entries(selectedEvent.metadata).map(([key, value]) => (
+                      <Typography key={key} variant="body2" paragraph>
+                        <strong>{key.charAt(0).toUpperCase() + key.slice(1)}:</strong> {String(value)}
+                      </Typography>
+                    ))}
+                  </>
+                )}
                 <Typography variant="subtitle1" gutterBottom sx={{ mt: 2 }}>
                   Actions
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 1 }}>
-                  <Button variant="outlined" size="small">
+                  <Button 
+                    variant="outlined" 
+                    size="small"
+                    onClick={() => {
+                      // Navigate to recording containing this event
+                      if (selectedEvent.recordingId) {
+                        window.open(`/recordings/${selectedEvent.recordingId}`, '_blank');
+                      }
+                    }}
+                    disabled={!selectedEvent.recordingId}
+                  >
                     View Recording
                   </Button>
-                  <Button variant="outlined" size="small">
+                  <Button 
+                    variant="outlined" 
+                    size="small"
+                    onClick={() => {
+                      // Download thumbnail image
+                      const link = document.createElement('a');
+                      link.href = selectedEvent.thumbnail;
+                      link.download = `event-${selectedEvent.id}.jpg`;
+                      document.body.appendChild(link);
+                      link.click();
+                      document.body.removeChild(link);
+                    }}
+                  >
                     Download Image
                   </Button>
                 </Box>
