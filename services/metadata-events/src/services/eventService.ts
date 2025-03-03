@@ -1,123 +1,237 @@
-import { Event, Prisma, DetectedObject, Recording, Camera } from '@prisma/client';
-import { eventRepository, CreateEventInput, UpdateEventInput } from '../repositories/eventRepository';
-import prisma from '../prisma/client';
+import { PrismaClient, Event, DetectedObject, Recording, Camera } from '@prisma/client';
+import { v4 as uuidv4 } from 'uuid';
 import logger from '../utils/logger';
+import { WebSocketService } from './webSocketService';
+import config from '../config/config';
 
-interface DetectedObjectInput {
-  objectType: string;
-  confidence: number;
-  boundingBox: Record<string, any>;
+// Initialize Prisma client
+const prisma = new PrismaClient();
+
+// Export types for use in controllers
+export type EventWithRelations = Event & {
+  detectedObjects?: DetectedObject[];
+  recording?: Recording & {
+    camera?: Camera;
+  };
+};
+
+export type EventFilters = {
+  cameraId?: string;
+  recordingId?: string;
+  eventType?: string;
+  startTime?: Date;
+  endTime?: Date;
+  minConfidence?: number;
+  maxConfidence?: number;
+  objectTypes?: string[];
+  objectCount?: { min?: number; max?: number };
+  objectPosition?: string;
+  hasMetadata?: boolean;
   metadata?: Record<string, any>;
-}
+  page?: number;
+  limit?: number;
+};
 
-interface CreateEventWithObjectsInput extends CreateEventInput {
-  detectedObjects?: DetectedObjectInput[];
-}
+export type EventCreateInput = {
+  recordingId: string;
+  timestamp: Date;
+  eventType: string;
+  confidence: number;
+  thumbnailPath?: string;
+  metadata?: any;
+  detectedObjects?: {
+    objectType: string;
+    confidence: number;
+    boundingBox: any;
+    metadata?: any;
+  }[];
+};
 
-// Enhanced types with relations
-export interface EventWithRelations extends Event {
-  detectedObjects: DetectedObject[];
-  recording?: RecordingWithCamera;
-}
+export type EventUpdateInput = {
+  eventType?: string;
+  confidence?: number;
+  thumbnailPath?: string;
+  metadata?: any;
+};
 
-export interface RecordingWithCamera extends Recording {
-  camera?: Camera;
-}
+class EventService {
+  private webSocketService: WebSocketService;
 
-export interface EventsResult {
-  events: EventWithRelations[];
-  total: number;
-  pages: number;
-}
+  constructor() {
+    this.webSocketService = new WebSocketService(config.webSocket.port);
+  }
 
-export interface CameraEventsResult {
-  events: EventWithRelations[];
-  camera: Camera;
-  total: number;
-  pages: number;
-}
-
-export interface RecordingEventsResult {
-  events: EventWithRelations[];
-  recording: RecordingWithCamera;
-  total: number;
-  pages: number;
-}
-
-/**
- * Service class for Event business logic
- */
-export class EventService {
   /**
-   * Create a new event with optional detected objects
+   * Get all events with advanced filtering
    */
-  async createEvent(eventData: CreateEventWithObjectsInput): Promise<EventWithRelations> {
+  async getAllEvents(filters: EventFilters) {
+    const {
+      cameraId,
+      recordingId,
+      eventType,
+      startTime,
+      endTime,
+      minConfidence = 0,
+      maxConfidence = 1,
+      objectTypes = [],
+      objectCount,
+      objectPosition,
+      hasMetadata,
+      metadata,
+      page = 1,
+      limit = 10
+    } = filters;
+
     try {
-      logger.info(`Creating new event for recording: ${eventData.recordingId}`);
+      // Build where clause based on filters
+      const where: any = {};
       
-      // Use a transaction to ensure all operations succeed or fail together
-      return await prisma.$transaction(async (tx) => {
-        // Create the event
-        const event = await tx.event.create({
-          data: {
-            recordingId: eventData.recordingId,
-            timestamp: eventData.timestamp,
-            eventType: eventData.eventType,
-            confidence: eventData.confidence,
-            metadata: eventData.metadata ? eventData.metadata : undefined,
-            thumbnailPath: eventData.thumbnailPath
+      // Basic filters
+      if (recordingId) {
+        where.recordingId = recordingId;
+      }
+      
+      if (eventType) {
+        where.eventType = eventType;
+      }
+      
+      if (startTime || endTime) {
+        where.timestamp = {};
+        if (startTime) {
+          where.timestamp.gte = startTime;
+        }
+        if (endTime) {
+          where.timestamp.lte = endTime;
+        }
+      }
+      
+      if (minConfidence > 0 || maxConfidence < 1) {
+        where.confidence = {};
+        if (minConfidence > 0) {
+          where.confidence.gte = minConfidence;
+        }
+        if (maxConfidence < 1) {
+          where.confidence.lte = maxConfidence;
+        }
+      }
+
+      // Advanced filters
+      
+      // Camera ID filter (join through recording)
+      if (cameraId) {
+        where.recording = {
+          cameraId: cameraId
+        };
+      }
+      
+      // Object type filter
+      if (objectTypes && objectTypes.length > 0) {
+        where.detectedObjects = {
+          some: {
+            objectType: {
+              in: objectTypes
+            }
           }
-        });
+        };
+      }
+      
+      // Object count filter
+      if (objectCount) {
+        const countWhere: any = {};
         
-        // Create any detected objects if provided
-        if (eventData.detectedObjects && eventData.detectedObjects.length > 0) {
-          await Promise.all(
-            eventData.detectedObjects.map(obj => 
-              tx.detectedObject.create({
-                data: {
-                  eventId: event.id,
-                  objectType: obj.objectType,
-                  confidence: obj.confidence,
-                  boundingBox: obj.boundingBox,
-                  metadata: obj.metadata
-                }
-              })
-            )
-          );
+        if (objectCount.min !== undefined) {
+          countWhere._count = { gte: objectCount.min };
         }
         
-        // Return the created event with its detected objects
-        return tx.event.findUniqueOrThrow({
-          where: { id: event.id },
-          include: {
-            detectedObjects: true
-          }
-        }) as unknown as EventWithRelations;
+        if (objectCount.max !== undefined) {
+          countWhere._count = { ...countWhere._count, lte: objectCount.max };
+        }
+        
+        if (Object.keys(countWhere).length > 0) {
+          where.detectedObjects = {
+            ...where.detectedObjects,
+            ...countWhere
+          };
+        }
+      }
+      
+      // Object position filter
+      if (objectPosition) {
+        const positionWhere = this.getPositionFilter(objectPosition);
+        
+        if (positionWhere) {
+          where.detectedObjects = {
+            some: {
+              ...where.detectedObjects?.some,
+              boundingBox: positionWhere
+            }
+          };
+        }
+      }
+      
+      // Metadata filters
+      if (hasMetadata) {
+        where.metadata = {
+          not: null
+        };
+      }
+      
+      if (metadata && Object.keys(metadata).length > 0) {
+        // Convert simple key-value pairs to Prisma JSON query format
+        Object.entries(metadata).forEach(([key, value]) => {
+          where[`metadata->>${key}`] = value;
+        });
+      }
+
+      // Get total count for pagination
+      const total = await prisma.event.count({ where });
+      
+      // Calculate total pages
+      const pages = Math.ceil(total / limit);
+      
+      // Get events with pagination
+      const events = await prisma.event.findMany({
+        where,
+        include: {
+          recording: {
+            include: {
+              camera: true
+            }
+          },
+          detectedObjects: true
+        },
+        orderBy: {
+          timestamp: 'desc'
+        },
+        skip: (page - 1) * limit,
+        take: limit
       });
+      
+      return { events, total, pages };
     } catch (error) {
-      logger.error('Error in createEvent service:', error);
+      logger.error('Error getting events with filters:', error);
       throw error;
     }
   }
 
   /**
-   * Get event by ID with all relations
+   * Get event by ID
    */
   async getEventById(id: string): Promise<EventWithRelations | null> {
     try {
       const event = await prisma.event.findUnique({
         where: { id },
         include: {
-          detectedObjects: true,
           recording: {
             include: {
               camera: true
             }
-          }
+          },
+          detectedObjects: true
         }
       });
       
-      return event as unknown as EventWithRelations | null;
+      return event;
     } catch (error) {
       logger.error(`Error getting event by ID ${id}:`, error);
       throw error;
@@ -125,94 +239,88 @@ export class EventService {
   }
 
   /**
-   * Get all events with filtering and pagination
+   * Create a new event
    */
-  async getAllEvents(params: {
-    cameraId?: string;
-    recordingId?: string;
-    eventType?: string;
-    startTime?: Date;
-    endTime?: Date;
-    page?: number;
-    limit?: number;
-  }): Promise<EventsResult> {
+  async createEvent(data: EventCreateInput): Promise<EventWithRelations> {
     try {
-      const { cameraId, recordingId, eventType, startTime, endTime, page = 1, limit = 10 } = params;
-      
-      // Build the where clause
-      let whereClause: Prisma.EventWhereInput = {};
-      
-      if (recordingId) {
-        whereClause.recordingId = recordingId;
-      }
-      
-      if (eventType) {
-        whereClause.eventType = eventType;
-      }
-      
-      if (cameraId) {
-        // If camera ID is provided, we need to find events for recordings from that camera
-        whereClause.recording = {
-          cameraId
-        };
-      }
-      
-      // Add time range filter if provided
-      if (startTime || endTime) {
-        whereClause.timestamp = {};
-        
-        if (startTime) {
-          whereClause.timestamp.gte = startTime;
-        }
-        
-        if (endTime) {
-          whereClause.timestamp.lte = endTime;
-        }
-      }
-      
-      // Get total count for pagination
-      const total = await prisma.event.count({ where: whereClause });
-      
-      // Calculate pagination values
-      const skip = (page - 1) * limit;
-      const pages = Math.ceil(total / limit);
-      
-      // Get events with pagination
-      const events = await prisma.event.findMany({
-        where: whereClause,
-        include: {
-          detectedObjects: true,
-          recording: {
-            include: {
-              camera: true
-            }
-          }
-        },
-        orderBy: {
-          timestamp: 'desc'
-        },
-        skip,
-        take: limit
+      // First check if the recording exists
+      const recording = await prisma.recording.findUnique({
+        where: { id: data.recordingId },
+        include: { camera: true }
       });
       
-      return {
-        events: events as unknown as EventWithRelations[],
-        total,
-        pages
-      };
+      if (!recording) {
+        throw new Error(`Recording with ID ${data.recordingId} not found`);
+      }
+      
+      // Create event
+      const event = await prisma.event.create({
+        data: {
+          id: uuidv4(),
+          recordingId: data.recordingId,
+          timestamp: data.timestamp,
+          eventType: data.eventType,
+          confidence: data.confidence,
+          thumbnailPath: data.thumbnailPath,
+          metadata: data.metadata,
+          detectedObjects: {
+            create: data.detectedObjects?.map(obj => ({
+              id: uuidv4(),
+              objectType: obj.objectType,
+              confidence: obj.confidence,
+              boundingBox: obj.boundingBox,
+              metadata: obj.metadata
+            })) || []
+          }
+        },
+        include: {
+          detectedObjects: true
+        }
+      });
+      
+      // Emit event through WebSocket
+      this.webSocketService.emitEvent('event:created', {
+        id: event.id,
+        timestamp: event.timestamp,
+        type: event.eventType,
+        confidence: event.confidence,
+        thumbnailPath: event.thumbnailPath,
+        cameraId: recording.cameraId,
+        cameraName: recording.camera?.name,
+        recordingId: data.recordingId
+      });
+      
+      return event;
     } catch (error) {
-      logger.error('Error getting all events:', error);
+      logger.error('Error creating event:', error);
       throw error;
     }
   }
 
   /**
-   * Update event by ID
+   * Update an event
    */
-  async updateEvent(id: string, eventData: UpdateEventInput): Promise<Event> {
+  async updateEvent(id: string, data: EventUpdateInput): Promise<Event> {
     try {
-      logger.info(`Updating event with ID ${id}`);
-      return await eventRepository.update(id, eventData);
+      const event = await prisma.event.update({
+        where: { id },
+        data: {
+          eventType: data.eventType,
+          confidence: data.confidence,
+          thumbnailPath: data.thumbnailPath,
+          metadata: data.metadata,
+          updatedAt: new Date()
+        }
+      });
+      
+      // Emit event through WebSocket
+      this.webSocketService.emitEvent('event:updated', {
+        id: event.id,
+        type: event.eventType,
+        confidence: event.confidence
+      });
+      
+      return event;
     } catch (error) {
       logger.error(`Error updating event ${id}:`, error);
       throw error;
@@ -220,12 +328,22 @@ export class EventService {
   }
 
   /**
-   * Delete event by ID
+   * Delete an event
    */
-  async deleteEvent(id: string): Promise<Event> {
+  async deleteEvent(id: string): Promise<void> {
     try {
-      logger.info(`Deleting event with ID ${id}`);
-      return await eventRepository.delete(id);
+      // First delete all associated detected objects
+      await prisma.detectedObject.deleteMany({
+        where: { eventId: id }
+      });
+      
+      // Then delete the event
+      await prisma.event.delete({
+        where: { id }
+      });
+      
+      // Emit event through WebSocket
+      this.webSocketService.emitEvent('event:deleted', { id });
     } catch (error) {
       logger.error(`Error deleting event ${id}:`, error);
       throw error;
@@ -235,15 +353,18 @@ export class EventService {
   /**
    * Get events by camera ID
    */
-  async getEventsByCamera(cameraId: string, params: {
-    eventType?: string;
-    startTime?: Date;
-    endTime?: Date;
-    page?: number;
-    limit?: number;
-  }): Promise<CameraEventsResult> {
+  async getEventsByCamera(cameraId: string, filters: EventFilters) {
+    const {
+      eventType,
+      startTime,
+      endTime,
+      minConfidence,
+      page = 1,
+      limit = 10
+    } = filters;
+    
     try {
-      // First check if camera exists
+      // Check if camera exists
       const camera = await prisma.camera.findUnique({
         where: { id: cameraId }
       });
@@ -252,20 +373,55 @@ export class EventService {
         throw new Error(`Camera with ID ${cameraId} not found`);
       }
       
-      // Get events by camera ID
-      const { events, total, pages } = await this.getAllEvents({
-        ...params,
-        cameraId
+      // Build where clause
+      const where: any = {
+        recording: {
+          cameraId: cameraId
+        }
+      };
+      
+      if (eventType) {
+        where.eventType = eventType;
+      }
+      
+      if (startTime || endTime) {
+        where.timestamp = {};
+        if (startTime) {
+          where.timestamp.gte = startTime;
+        }
+        if (endTime) {
+          where.timestamp.lte = endTime;
+        }
+      }
+      
+      if (minConfidence) {
+        where.confidence = {
+          gte: minConfidence
+        };
+      }
+      
+      // Get total count for pagination
+      const total = await prisma.event.count({ where });
+      
+      // Calculate total pages
+      const pages = Math.ceil(total / limit);
+      
+      // Get events with pagination
+      const events = await prisma.event.findMany({
+        where,
+        include: {
+          detectedObjects: true
+        },
+        orderBy: {
+          timestamp: 'desc'
+        },
+        skip: (page - 1) * limit,
+        take: limit
       });
       
-      return {
-        events,
-        camera,
-        total,
-        pages
-      };
+      return { events, camera, total, pages };
     } catch (error) {
-      logger.error(`Error getting events by camera ${cameraId}:`, error);
+      logger.error(`Error getting events for camera ${cameraId}:`, error);
       throw error;
     }
   }
@@ -273,42 +429,328 @@ export class EventService {
   /**
    * Get events by recording ID
    */
-  async getEventsByRecording(recordingId: string, params: {
-    eventType?: string;
-    page?: number;
-    limit?: number;
-  }): Promise<RecordingEventsResult> {
+  async getEventsByRecording(recordingId: string, filters: EventFilters) {
+    const {
+      eventType,
+      page = 1,
+      limit = 10
+    } = filters;
+    
     try {
-      // First check if recording exists
+      // Check if recording exists
       const recording = await prisma.recording.findUnique({
         where: { id: recordingId },
-        include: {
-          camera: true
-        }
+        include: { camera: true }
       });
       
       if (!recording) {
         throw new Error(`Recording with ID ${recordingId} not found`);
       }
       
-      // Get events by recording ID
-      const { events, total, pages } = await this.getAllEvents({
-        ...params,
-        recordingId
+      // Build where clause
+      const where: any = {
+        recordingId: recordingId
+      };
+      
+      if (eventType) {
+        where.eventType = eventType;
+      }
+      
+      // Get total count for pagination
+      const total = await prisma.event.count({ where });
+      
+      // Calculate total pages
+      const pages = Math.ceil(total / limit);
+      
+      // Get events with pagination
+      const events = await prisma.event.findMany({
+        where,
+        include: {
+          detectedObjects: true
+        },
+        orderBy: {
+          timestamp: 'asc'
+        },
+        skip: (page - 1) * limit,
+        take: limit
       });
       
-      return {
-        events,
-        recording: recording as unknown as RecordingWithCamera,
-        total,
-        pages
-      };
+      return { events, recording, total, pages };
     } catch (error) {
-      logger.error(`Error getting events by recording ${recordingId}:`, error);
+      logger.error(`Error getting events for recording ${recordingId}:`, error);
       throw error;
+    }
+  }
+
+  /**
+   * Get latest events (for real-time updates)
+   */
+  async getLatestEvents(limit: number = 10): Promise<EventWithRelations[]> {
+    try {
+      const events = await prisma.event.findMany({
+        include: {
+          recording: {
+            include: {
+              camera: true
+            }
+          },
+          detectedObjects: true
+        },
+        orderBy: {
+          timestamp: 'desc'
+        },
+        take: limit
+      });
+      
+      return events;
+    } catch (error) {
+      logger.error('Error getting latest events:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get events count by type
+   */
+  async getEventCountsByType(startTime?: Date, endTime?: Date): Promise<Record<string, number>> {
+    try {
+      const where: any = {};
+      
+      if (startTime || endTime) {
+        where.timestamp = {};
+        if (startTime) {
+          where.timestamp.gte = startTime;
+        }
+        if (endTime) {
+          where.timestamp.lte = endTime;
+        }
+      }
+      
+      const events = await prisma.event.groupBy({
+        by: ['eventType'],
+        _count: {
+          eventType: true
+        },
+        where
+      });
+      
+      // Convert to simple object
+      const counts: Record<string, number> = {};
+      events.forEach(e => {
+        counts[e.eventType] = e._count.eventType;
+      });
+      
+      return counts;
+    } catch (error) {
+      logger.error('Error getting event counts by type:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Apply retention policy (delete old events)
+   */
+  async applyRetentionPolicy(retentionDays: number): Promise<number> {
+    try {
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+      
+      // Find events to delete
+      const eventsToDelete = await prisma.event.findMany({
+        where: {
+          timestamp: {
+            lt: cutoffDate
+          }
+        },
+        select: {
+          id: true
+        }
+      });
+      
+      const eventIds = eventsToDelete.map(e => e.id);
+      
+      // Delete detected objects first
+      await prisma.detectedObject.deleteMany({
+        where: {
+          eventId: {
+            in: eventIds
+          }
+        }
+      });
+      
+      // Delete events
+      const result = await prisma.event.deleteMany({
+        where: {
+          id: {
+            in: eventIds
+          }
+        }
+      });
+      
+      logger.info(`Applied retention policy: deleted ${result.count} events older than ${retentionDays} days`);
+      
+      return result.count;
+    } catch (error) {
+      logger.error('Error applying retention policy:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Search events by object types (advanced search)
+   */
+  async searchEventsByObjectTypes(objectTypes: string[], filters: EventFilters = {}) {
+    try {
+      const {
+        startTime,
+        endTime,
+        minConfidence = 0,
+        page = 1,
+        limit = 10
+      } = filters;
+      
+      // Build where clause
+      const where: any = {
+        detectedObjects: {
+          some: {
+            objectType: {
+              in: objectTypes
+            }
+          }
+        }
+      };
+      
+      if (startTime || endTime) {
+        where.timestamp = {};
+        if (startTime) {
+          where.timestamp.gte = startTime;
+        }
+        if (endTime) {
+          where.timestamp.lte = endTime;
+        }
+      }
+      
+      if (minConfidence > 0) {
+        where.detectedObjects = {
+          some: {
+            ...where.detectedObjects.some,
+            confidence: {
+              gte: minConfidence
+            }
+          }
+        };
+      }
+      
+      // Get total count for pagination
+      const total = await prisma.event.count({ where });
+      
+      // Calculate total pages
+      const pages = Math.ceil(total / limit);
+      
+      // Get events with pagination
+      const events = await prisma.event.findMany({
+        where,
+        include: {
+          recording: {
+            include: {
+              camera: true
+            }
+          },
+          detectedObjects: true
+        },
+        orderBy: {
+          timestamp: 'desc'
+        },
+        skip: (page - 1) * limit,
+        take: limit
+      });
+      
+      return { events, total, pages };
+    } catch (error) {
+      logger.error('Error searching events by object types:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Export events to CSV or JSON
+   */
+  async exportEvents(filters: EventFilters, format: 'csv' | 'json' = 'json') {
+    try {
+      const { events } = await this.getAllEvents({
+        ...filters,
+        page: 1,
+        limit: 1000 // Increased limit for exports
+      });
+      
+      if (format === 'json') {
+        return JSON.stringify(events.map(event => ({
+          id: event.id,
+          timestamp: event.timestamp,
+          type: event.eventType,
+          confidence: event.confidence,
+          cameraName: event.recording?.camera?.name,
+          recordingId: event.recordingId,
+          objects: event.detectedObjects?.map(obj => obj.objectType).join(', '),
+          createdAt: event.createdAt
+        })));
+      } else {
+        // CSV format
+        const header = 'id,timestamp,type,confidence,camera,recordingId,objects,createdAt\n';
+        const rows = events.map(event => {
+          const objects = event.detectedObjects?.map(obj => obj.objectType).join('|');
+          return `${event.id},${event.timestamp.toISOString()},${event.eventType},${event.confidence},${event.recording?.camera?.name || ''},${event.recordingId},${objects || ''},${event.createdAt.toISOString()}`;
+        }).join('\n');
+        
+        return header + rows;
+      }
+    } catch (error) {
+      logger.error('Error exporting events:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Helper method to translate position filter to bounding box constraints
+   */
+  private getPositionFilter(position: string) {
+    // Position can be: center, top, bottom, left, right
+    switch (position.toLowerCase()) {
+      case 'center':
+        // Center means x and y are around 0.5 (normalized coordinates)
+        return {
+          path: ['x'],
+          gte: 0.3,
+          lte: 0.7
+        };
+      case 'top':
+        // Top means y is close to 0
+        return {
+          path: ['y'],
+          lte: 0.3
+        };
+      case 'bottom':
+        // Bottom means y is close to 1
+        return {
+          path: ['y'],
+          gte: 0.7
+        };
+      case 'left':
+        // Left means x is close to 0
+        return {
+          path: ['x'],
+          lte: 0.3
+        };
+      case 'right':
+        // Right means x is close to 1
+        return {
+          path: ['x'],
+          gte: 0.7
+        };
+      default:
+        return null;
     }
   }
 }
 
-// Export a singleton instance
 export const eventService = new EventService();
