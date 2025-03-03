@@ -10,5 +10,8 @@ export * from './communication/index';
 // Shared models
 export * from './models/index';
 
+// Message queue standardization
+export * from './messaging/index';
+
 // Main export for shared library
 export const SharedLibraryVersion = '1.0.0';
