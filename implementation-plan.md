@@ -241,27 +241,27 @@ This document outlines the implementation plan for completing the OmniSight vide
 
 ### Phase 6: Extended Camera Protocol Support (Week 8-9) ⏳
 
-#### 6.1 MJPEG Protocol Implementation ⬜
+#### 6.1 MJPEG Protocol Implementation ✅
 
-- [ ] Create MJPEG stream connection handler
-- [ ] Implement HTTP parsing for Motion JPEG streams
-- [ ] Add MJPEG-specific configuration options
-- [ ] Develop frame extraction and processing pipeline
-- [ ] Integrate with existing recording system
-- [ ] Implement browser-compatible direct streaming
-- [ ] Add automatic protocol detection and fallback
-- [ ] Create MJPEG-specific stream health monitoring
+- [x] Create MJPEG stream connection handler
+- [x] Implement HTTP parsing for Motion JPEG streams
+- [x] Add MJPEG-specific configuration options
+- [x] Develop frame extraction and processing pipeline
+- [x] Integrate with existing recording system
+- [x] Implement browser-compatible direct streaming
+- [x] Add automatic protocol detection and fallback
+- [x] Create MJPEG-specific stream health monitoring
 
-#### 6.2 ONVIF Protocol Integration ⬜
+#### 6.2 ONVIF Protocol Integration ✅
 
-- [ ] Implement ONVIF device discovery service
-- [ ] Create ONVIF authentication mechanisms
-- [ ] Develop standardized ONVIF command interface
-- [ ] Implement comprehensive PTZ controls via ONVIF
-- [ ] Add ONVIF event subscription and handling
-- [ ] Create ONVIF device configuration management
-- [ ] Implement ONVIF profile support (S, T, G)
-- [ ] Develop ONVIF metadata extraction
+- [x] Implement ONVIF device discovery service
+- [x] Create ONVIF authentication mechanisms
+- [x] Develop standardized ONVIF command interface
+- [x] Implement comprehensive PTZ controls via ONVIF
+- [x] Add ONVIF event subscription and handling
+- [x] Create ONVIF device configuration management
+- [x] Implement ONVIF profile support (S, T, G)
+- [x] Develop ONVIF metadata extraction
 
 #### 6.3 WebRTC Implementation ✅
 
@@ -277,16 +277,16 @@ This document outlines the implementation plan for completing the OmniSight vide
 - [x] Create WebRTC stream ingestion pipeline with multi-source support
 - [x] Create WebRTC stream recording capabilities with segmentation
 
-#### 6.4 HTTP Live Streaming (HLS) Enhancements ⬜
+#### 6.4 HTTP Live Streaming (HLS) Enhancements ✅
 
-- [ ] Expand HLS support beyond basic playback
-- [ ] Implement HLS stream generation from RTSP sources
-- [ ] Create multi-bitrate adaptive streaming
-- [ ] Add segment encryption for secure streaming
-- [ ] Develop low-latency HLS options
-- [ ] Implement stream authentication for HLS
-- [ ] Create CDN-compatible streaming options
-- [ ] Add HLS recording and conversion utilities
+- [x] Expand HLS support beyond basic playback
+- [x] Implement HLS stream generation from RTSP sources
+- [x] Create multi-bitrate adaptive streaming
+- [x] Add segment encryption for secure streaming
+- [x] Develop low-latency HLS options
+- [x] Implement stream authentication for HLS
+- [x] Create CDN-compatible streaming options
+- [x] Add HLS recording and conversion utilities
 
 #### 6.5 Proprietary Camera API Support ⬜
 
@@ -467,13 +467,76 @@ Comprehensive documentation now available:
 
 ### Extended Camera Protocol Support
 
-The planned comprehensive camera protocol support will include:
+The comprehensive camera protocol support includes:
 - MJPEG over HTTP for broad compatibility with legacy systems
 - ONVIF standard for unified camera management
 - WebRTC for ultra-low latency streaming
 - Enhanced HLS support for optimized remote viewing
 - Proprietary API integrations for advanced camera features
 - Unified abstraction layer for protocol-agnostic operations
+
+### MJPEG Protocol Implementation
+
+The MJPEG Protocol implementation now includes:
+- **MJPEGProtocol (completed)**: A full implementation of the Motion JPEG protocol with robust connection handling, frame extraction, and buffering capabilities
+- **Connection Management (completed)**: Automatic reconnection with configurable retry logic and exponential backoff
+- **Frame Parser (completed)**: Multipart MIME parsing with header extraction and boundary detection
+- **Stream Processing (completed)**: Frame rate control, buffering, and statistics collection
+- **Error Handling (completed)**: Comprehensive error detection and recovery strategies
+- **Browser Integration (completed)**: Direct browser-compatible streaming support
+- **Performance Monitoring (completed)**: Real-time metrics including frame rate, bitrate, and buffer utilization
+
+```
+Client → MJPEGProtocol → Frame Parser → Frame Buffer → Applications
+   ↑           ↓                                       ↑
+   └───── Reconnection ←─── Connection Manager ────────┘
+          Detection
+```
+
+### ONVIF Protocol Implementation
+
+The ONVIF Protocol implementation now includes:
+- **ONVIFProtocol (completed)**: Standard-compliant implementation supporting the ONVIF specifications with service detection
+- **Device Discovery (completed)**: Automatic detection of ONVIF-compatible devices on the network
+- **Authentication (completed)**: Support for Digest and WS-Security authentication methods
+- **Media Profiles (completed)**: Management of ONVIF media profiles with resolution matching and optimization
+- **PTZ Controls (completed)**: Comprehensive pan-tilt-zoom controls with absolute, relative, and continuous movement
+- **Preset Management (completed)**: Creation, recall, and management of camera position presets
+- **Event System (completed)**: Subscription to ONVIF events with pull-point support
+- **Service Access (completed)**: Unified access to ONVIF services including device, media, PTZ, imaging, and analytics
+
+```
+Client ←→ ONVIFProtocol ←→ ONVIF Services
+   ↑            ↓             ↑
+   │      Service Registry     │
+   └────────────┬─────────────┘
+                ↓
+        Event Subscription
+                ↓
+      PTZ & Preset Management
+```
+
+### HTTP Live Streaming (HLS) Implementation
+
+The HTTP Live Streaming (HLS) implementation now includes:
+- **HLSProtocol (completed)**: Enhanced HLS implementation supporting advanced features beyond basic playback
+- **Adaptive Bitrate (completed)**: Multi-bitrate streaming with quality-based variant selection and automatic switching
+- **Stream Generation (completed)**: Automatic HLS stream generation from RTSP, MJPEG, and other source formats
+- **Segment Security (completed)**: Encryption and authentication for stream segments with key rotation
+- **Low-Latency HLS (completed)**: Support for LL-HLS standard with reduced latency for near real-time streaming
+- **CDN Integration (completed)**: CDN-compatible streaming with cache control and distribution optimization
+- **Recording Integration (completed)**: HLS recording with segment management and conversion utilities
+- **Authentication (completed)**: Stream access control with token-based and cookie-based authentication methods
+
+```
+Source Stream → HLSProtocol → FFmpeg Process → HLS Segments & Playlists → Clients
+      ↑               ↓                ↓              ↓
+      └─── Stream Manager ── Quality Variants ── Security Layer
+                ↓
+      Adaptive Bitrate Selection
+                ↓
+        Low-Latency Options
+```
 
 ### WebRTC Implementation
 
@@ -534,8 +597,8 @@ Core components implemented:
 | Week 6 | Testing & Optimization | Performance improvements, Bug fixes | ✅ Complete |
 | Week 7 | Release Preparation | Documentation, Final testing, Release package | ✅ Complete |
 | Week 8 | Protocol Extensions 1 | WebRTC implementation complete, Protocol Abstraction Layer | ✅ Complete |
-| Week 9 | Protocol Extensions 2 | MJPEG and ONVIF implementation, HLS enhancements | ⏳ In Progress |
-| Week 10 | Protocol Extensions 3 | Proprietary camera API support, final integration | ⬜ Planned |
+| Week 9 | Protocol Extensions 2 | MJPEG and ONVIF implementation | ✅ Complete |
+| Week 10 | Protocol Extensions 3 | HLS enhancements ✅, Proprietary camera API support ⏳ | ⏳ In Progress |
 
 ## Future Enhancements
 
