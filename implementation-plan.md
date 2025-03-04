@@ -782,6 +782,7 @@ Core components implemented:
 | Week 10 | Protocol Extensions 3 | HLS enhancements ✅, Third-party API ✅, Proprietary camera API support ⏳ | ⏳ In Progress |
 | Week 11 | Hardware Acceleration 1 | Acceleration framework ✅, NVIDIA ✅ and Intel ✅ support | ✅ Complete |
 | Week 12 | Hardware Acceleration 2 | AMD, Mobile NPUs, Cross-platform optimization ✅ | ⏳ In Progress |
+| Week 13 | Frontend Hardware Acceleration UI | Hardware acceleration settings UI, API documentation | ✅ Complete |
 
 ## Future Enhancements
 
