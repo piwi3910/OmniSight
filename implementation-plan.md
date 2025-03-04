@@ -378,14 +378,14 @@ This document outlines the implementation plan for completing the OmniSight vide
 - [x] Create oneAPI-optimized detection algorithms
 - [x] Add multi-device support for integrated and discrete GPUs
 
-#### 9.5 Mobile and Embedded Acceleration ⬜
+#### 9.5 Mobile and Embedded Acceleration ✅
 
-- [ ] Implement Google Edge TPU support for accelerated inference
-- [ ] Add Rockchip NPU integration for embedded devices
-- [ ] Integrate Qualcomm Hexagon DSP support
-- [ ] Implement Arm Mali GPU acceleration
-- [ ] Add WebNN support for browser-based acceleration
-- [ ] Create adaptive acceleration profiles for different devices
+- [x] Implement Google Edge TPU support for accelerated inference
+- [x] Add Rockchip NPU integration for embedded devices
+- [x] Integrate Qualcomm Hexagon DSP support
+- [x] Implement Arm Mali GPU acceleration
+- [x] Add WebNN support for browser-based acceleration
+- [x] Create adaptive acceleration profiles for different devices
 
 #### 9.6 Cross-Platform Optimization ✅
 
@@ -781,7 +781,7 @@ Core components implemented:
 | Week 9 | Protocol Extensions 2 | MJPEG and ONVIF implementation | ✅ Complete |
 | Week 10 | Protocol Extensions 3 | HLS enhancements ✅, Third-party API ✅, Proprietary camera API support ⏳ | ⏳ In Progress |
 | Week 11 | Hardware Acceleration 1 | Acceleration framework ✅, NVIDIA ✅ and Intel ✅ support | ✅ Complete |
-| Week 12 | Hardware Acceleration 2 | AMD ✅, Mobile NPUs, Cross-platform optimization ✅ | ⏳ In Progress |
+| Week 12 | Hardware Acceleration 2 | AMD ✅, Mobile NPUs ✅, Cross-platform optimization ✅ | ✅ Complete |
 | Week 13 | Frontend Hardware Acceleration UI | Hardware acceleration settings UI, API documentation | ✅ Complete |
 
 ## Future Enhancements
