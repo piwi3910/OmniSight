@@ -27,6 +27,7 @@ const Events = lazyLoadStandard(() => import('./pages/Events'));
 // Heavyweight components (load last, can tolerate delay)
 const Settings = lazyLoadHeavyweight(() => import('./pages/Settings'));
 const SystemMonitoring = lazyLoadHeavyweight(() => import('./pages/SystemMonitoring'));
+const AdvancedAnalytics = lazyLoadHeavyweight(() => import('./pages/AdvancedAnalytics'));
 const NotFound = lazyLoadHeavyweight(() => import('./pages/NotFound'));
 
 // Loading fallbacks
@@ -154,6 +155,11 @@ function App() {
                 <Route path="monitoring" element={
                   <Suspense fallback={<ContentLoadingFallback />}>
                     <SystemMonitoring />
+                  </Suspense>
+                } />
+                <Route path="analytics" element={
+                  <Suspense fallback={<ContentLoadingFallback />}>
+                    <AdvancedAnalytics />
                   </Suspense>
                 } />
                 <Route path="*" element={

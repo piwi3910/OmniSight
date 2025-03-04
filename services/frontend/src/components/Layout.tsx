@@ -27,7 +27,9 @@ import {
   Notifications as NotificationsIcon,
   Settings as SettingsIcon,
   AccountCircle as AccountCircleIcon,
-  Logout as LogoutIcon
+  Logout as LogoutIcon,
+  BarChart as BarChartIcon,
+  Memory as MemoryIcon
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -44,6 +46,8 @@ const navItems: NavItem[] = [
   { text: 'Cameras', path: '/cameras', icon: <VideocamIcon /> },
   { text: 'Recordings', path: '/recordings', icon: <VideoLibraryIcon /> },
   { text: 'Events', path: '/events', icon: <NotificationsIcon /> },
+  { text: 'Analytics', path: '/analytics', icon: <BarChartIcon /> },
+  { text: 'Monitoring', path: '/monitoring', icon: <MemoryIcon /> },
   { text: 'Settings', path: '/settings', icon: <SettingsIcon /> }
 ];
 

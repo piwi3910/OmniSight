@@ -1,593 +1,1085 @@
-import axios, { AxiosInstance, AxiosResponse } from 'axios';
-import { Readable } from 'stream';
+/**
+ * MJPEG Protocol Implementation
+ * 
+ * Implements the Motion JPEG camera protocol for the OmniSight system.
+ * This protocol is widely supported by legacy IP cameras and provides
+ * compatibility with older systems.
+ */
+
 import { EventEmitter } from 'events';
-import {
-  AbstractCameraProtocol
-} from '../AbstractCameraProtocol';
-import {
-  CameraConfig,
-  CameraCapabilities,
-  CameraInfo,
-  ConnectionStatus,
-  PtzMovement,
-  StreamOptions,
-  StreamProfile
-} from '../interfaces/ICameraProtocol';
+import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
+import * as http from 'http';
+import * as https from 'https';
+import { Readable, Transform } from 'stream';
+import { AbstractCameraProtocol } from '../AbstractCameraProtocol';
+import { ICameraProtocol, CameraCapability } from '../interfaces/ICameraProtocol';
 
 /**
- * Class representing boundary parsing state
+ * MJPEG connection options
  */
-class BoundaryParser {
-  private boundary: string;
-  private buffer: Buffer = Buffer.alloc(0);
-  private frameCallback: (frame: Buffer) => void;
-  private boundaryPattern: Buffer;
-  private contentTypePattern: Buffer = Buffer.from('Content-Type: image/jpeg', 'ascii');
-  private contentLengthPattern: Buffer = Buffer.from('Content-Length: ', 'ascii');
-  private doubleNewlinePattern: Buffer = Buffer.from('\r\n\r\n', 'ascii');
-
-  /**
-   * Create a boundary parser
-   * 
-   * @param boundary MJPEG boundary string
-   * @param callback Function to call when a frame is found
-   */
-  constructor(boundary: string, callback: (frame: Buffer) => void) {
-    this.boundary = boundary;
-    this.frameCallback = callback;
-    this.boundaryPattern = Buffer.from('--' + this.boundary, 'ascii');
-  }
-
-  /**
-   * Process incoming data
-   * 
-   * @param chunk Raw data chunk
-   */
-  public processChunk(chunk: Buffer): void {
-    // Append new data to existing buffer
-    this.buffer = Buffer.concat([this.buffer, chunk]);
+export interface MJPEGConnectionOptions {
+  // URL of the MJPEG stream
+  url: string;
+  
+  // Authentication credentials
+  username?: string;
+  password?: string;
+  
+  // Connection timeout in milliseconds
+  timeout?: number;
+  
+  // Whether to use HTTPS for connection
+  useHttps?: boolean;
+  
+  // Request headers
+  headers?: Record<string, string>;
+  
+  // Whether to validate SSL certificates
+  validateCertificate?: boolean;
+  
+  // Reconnection settings
+  reconnect?: {
+    // Whether to automatically reconnect
+    enabled: boolean;
     
-    // Find boundaries until no more are found
-    let boundaryIndex = this.findPattern(this.boundaryPattern);
-    while (boundaryIndex !== -1) {
-      // Extract frame data between boundaries
-      const frameData = this.buffer.slice(0, boundaryIndex);
-      
-      // Process the frame if it's not empty
-      if (frameData.length > 0) {
-        this.processFrame(frameData);
-      }
-      
-      // Remove processed data (including boundary) from buffer
-      this.buffer = this.buffer.slice(boundaryIndex + this.boundaryPattern.length);
-      
-      // Find next boundary
-      boundaryIndex = this.findPattern(this.boundaryPattern);
-    }
+    // Maximum number of reconnection attempts
+    maxAttempts?: number;
     
-    // Prevent buffer from growing too large
-    if (this.buffer.length > 1024 * 1024) { // 1MB max
-      // Reset buffer if it gets too large (something is wrong)
-      this.buffer = Buffer.alloc(0);
-    }
-  }
-
-  /**
-   * Find pattern in buffer
-   * 
-   * @param pattern Pattern to find
-   * @returns Index of pattern or -1 if not found
-   */
-  private findPattern(pattern: Buffer): number {
-    return this.buffer.indexOf(pattern);
-  }
-
-  /**
-   * Process a frame
-   * 
-   * @param frameData Frame data
-   */
-  private processFrame(frameData: Buffer): void {
-    // Find content type marker
-    const contentTypeIndex = this.findPattern(this.contentTypePattern);
-    if (contentTypeIndex === -1) return;
+    // Delay between reconnection attempts in milliseconds
+    delay?: number;
     
-    // Find content length marker
-    const contentLengthIndex = this.findPattern(this.contentLengthPattern);
-    if (contentLengthIndex === -1) return;
-    
-    // Find double newline (header/body separator)
-    const doubleNewlineIndex = this.findPattern(this.doubleNewlinePattern);
-    if (doubleNewlineIndex === -1) return;
-    
-    // Extract content length
-    const contentLengthStr = frameData.slice(
-      contentLengthIndex + this.contentLengthPattern.length,
-      frameData.indexOf('\r\n', contentLengthIndex)
-    ).toString('ascii');
-    
-    const contentLength = parseInt(contentLengthStr.trim(), 10);
-    if (isNaN(contentLength)) return;
-    
-    // Extract JPEG data
-    const jpegStartIndex = doubleNewlineIndex + this.doubleNewlinePattern.length;
-    const jpegData = frameData.slice(jpegStartIndex, jpegStartIndex + contentLength);
-    
-    // Call callback with JPEG data
-    if (jpegData.length === contentLength) {
-      this.frameCallback(jpegData);
-    }
-  }
+    // Whether to use exponential backoff for reconnection
+    useExponentialBackoff?: boolean;
+  };
 }
 
 /**
- * MJPEG camera protocol implementation
- * 
- * This class implements the ICameraProtocol interface for MJPEG camera streams.
- * MJPEG streams work over HTTP and consist of a series of JPEG images separated
- * by multipart boundaries.
+ * MJPEG streaming options
  */
-export class MJPEGProtocol extends AbstractCameraProtocol {
-  /**
-   * Protocol identifier
-   */
-  public readonly protocolId: string = 'mjpeg';
+export interface MJPEGStreamingOptions {
+  // Maximum frame rate to process (0 = no limit)
+  maxFrameRate?: number;
   
-  /**
-   * Protocol name
-   */
-  public readonly protocolName: string = 'Motion JPEG';
+  // Whether to enable motion detection
+  enableMotionDetection?: boolean;
   
-  /**
-   * Protocol capabilities
-   */
-  public readonly capabilities: CameraCapabilities = {
-    ptz: false,
-    presets: false,
-    digitalPtz: true,
-    motionDetection: false,
-    audio: false,
-    twoWayAudio: false,
-    encodings: ['mjpeg'],
-    authMethods: ['basic', 'digest'],
-    localRecording: false,
-    events: false,
-    protocolSpecific: {
-      supportsMultipart: true
+  // Frame scaling options
+  scaling?: {
+    // Whether to scale frames
+    enabled: boolean;
+    
+    // Target width
+    width?: number;
+    
+    // Target height
+    height?: number;
+    
+    // Scaling quality (0-100)
+    quality?: number;
+  };
+  
+  // Frame buffer size (number of frames)
+  bufferSize?: number;
+}
+
+/**
+ * MJPEG protocol events
+ */
+export enum MJPEGProtocolEvent {
+  CONNECTED = 'mjpeg:connected',
+  DISCONNECTED = 'mjpeg:disconnected',
+  RECONNECTING = 'mjpeg:reconnecting',
+  FRAME_RECEIVED = 'mjpeg:frame_received',
+  ERROR = 'mjpeg:error',
+  BUFFER_FULL = 'mjpeg:buffer_full',
+  BUFFER_EMPTY = 'mjpeg:buffer_empty',
+  FRAME_RATE_CHANGE = 'mjpeg:frame_rate_change'
+}
+
+/**
+ * MJPEG frame type
+ */
+export interface MJPEGFrame {
+  // Frame data
+  data: Buffer;
+  
+  // Frame timestamp
+  timestamp: Date;
+  
+  // Frame sequence number
+  sequenceNumber: number;
+  
+  // Frame content type
+  contentType: string;
+  
+  // Frame content length
+  contentLength: number;
+  
+  // Custom headers from the frame
+  headers: Record<string, string>;
+}
+
+/**
+ * MJPEG protocol status
+ */
+export enum MJPEGProtocolStatus {
+  DISCONNECTED = 'disconnected',
+  CONNECTING = 'connecting',
+  CONNECTED = 'connected',
+  RECONNECTING = 'reconnecting',
+  ERROR = 'error'
+}
+
+/**
+ * MJPEG protocol statistics
+ */
+export interface MJPEGProtocolStats {
+  // Current status
+  status: MJPEGProtocolStatus;
+  
+  // Connection timestamp
+  connectionTimestamp?: Date;
+  
+  // Time connected in seconds
+  timeConnected?: number;
+  
+  // Number of frames received
+  framesReceived: number;
+  
+  // Current frame rate
+  frameRate: number;
+  
+  // Total bytes received
+  bytesReceived: number;
+  
+  // Current bitrate in bits per second
+  bitrate: number;
+  
+  // Number of reconnection attempts
+  reconnectionAttempts: number;
+  
+  // Last error message
+  lastError?: string;
+  
+  // Buffer statistics
+  buffer: {
+    // Current buffer size in frames
+    size: number;
+    
+    // Maximum buffer size
+    capacity: number;
+    
+    // Buffer utilization percentage
+    utilization: number;
+  };
+}
+
+/**
+ * MJPEG protocol implementation for the OmniSight system
+ */
+export class MJPEGProtocol extends AbstractCameraProtocol implements ICameraProtocol {
+  // Camera capabilities
+  private capabilities: Set<CameraCapability> = new Set([
+    CameraCapability.STREAM,
+    CameraCapability.SNAPSHOT
+  ]);
+  
+  // Connection options
+  private connectionOptions: MJPEGConnectionOptions;
+  
+  // Streaming options
+  private streamingOptions: MJPEGStreamingOptions;
+  
+  // HTTP client instance
+  private httpClient: AxiosInstance;
+  
+  // Current connection response
+  private response?: http.IncomingMessage;
+  
+  // Current connection status
+  private status: MJPEGProtocolStatus = MJPEGProtocolStatus.DISCONNECTED;
+  
+  // Frame buffer
+  private frameBuffer: MJPEGFrame[] = [];
+  
+  // Current frame rate
+  private frameRate: number = 0;
+  
+  // Statistics
+  private stats: MJPEGProtocolStats = {
+    status: MJPEGProtocolStatus.DISCONNECTED,
+    framesReceived: 0,
+    frameRate: 0,
+    bytesReceived: 0,
+    bitrate: 0,
+    reconnectionAttempts: 0,
+    buffer: {
+      size: 0,
+      capacity: 0,
+      utilization: 0
     }
   };
   
-  /**
-   * HTTP client instance
-   */
-  private httpClient: AxiosInstance | null = null;
+  // Sequence number for frames
+  private sequenceNumber: number = 0;
+  
+  // Frame rate calculation
+  private frameRateCalculation = {
+    lastCalculation: Date.now(),
+    framesSinceLastCalculation: 0
+  };
+  
+  // Bitrate calculation
+  private bitrateCalculation = {
+    lastCalculation: Date.now(),
+    bytesSinceLastCalculation: 0
+  };
+  
+  // Reconnection timer
+  private reconnectionTimer?: NodeJS.Timeout;
+  
+  // Current reconnection attempt
+  private currentReconnectionAttempt: number = 0;
+  
+  // MJPEG boundary string (used in multipart/x-mixed-replace)
+  private boundary: string = '';
+  
+  // Current frame buffer (used while parsing a frame)
+  private currentFrameBuffer: Buffer[] = [];
+  
+  // Current frame headers
+  private currentFrameHeaders: Record<string, string> = {};
+  
+  // Parser state
+  private parserState: 'boundary' | 'headers' | 'content' = 'boundary';
+  
+  // Last frame timestamp
+  private lastFrameTimestamp: number = 0;
   
   /**
-   * Stream request response
-   */
-  private streamResponse: AxiosResponse | null = null;
-  
-  /**
-   * Active streams
-   */
-  private streams: Map<string, {
-    emitter: EventEmitter;
-    parser: BoundaryParser;
-    latestFrame: Uint8Array;
-    options?: StreamOptions;
-  }> = new Map();
-  
-  /**
-   * Camera information
-   */
-  private cameraInfoCache: CameraInfo | null = null;
-  
-  /**
-   * Execute HTTP request with auth
+   * Create a new MJPEG protocol instance
    * 
-   * @param url URL to request
-   * @param options Request options
+   * @param id Unique identifier for this camera
+   * @param name Human-readable name for this camera
+   * @param connectionOptions Connection options
+   * @param streamingOptions Streaming options
    */
-  private async executeRequest(url: string, options: any = {}): Promise<AxiosResponse> {
-    if (!this.httpClient) {
-      throw new Error('HTTP client not initialized');
-    }
+  constructor(
+    id: string,
+    name: string,
+    connectionOptions: MJPEGConnectionOptions,
+    streamingOptions: MJPEGStreamingOptions = {}
+  ) {
+    super(id, name, 'mjpeg');
     
-    return this.httpClient.request({
-      url,
-      ...options
-    });
-  }
-  
-  /**
-   * Connect to camera
-   * 
-   * @param config Camera configuration
-   */
-  protected async performConnect(config: CameraConfig): Promise<boolean> {
-    const timeout = config.timeout || 5000;
+    this.connectionOptions = this.validateConnectionOptions(connectionOptions);
+    this.streamingOptions = this.validateStreamingOptions(streamingOptions);
     
     // Create HTTP client
     this.httpClient = axios.create({
-      baseURL: `http://${config.host}:${config.port}`,
-      timeout,
-      auth: config.username && config.password ? {
-        username: config.username,
-        password: config.password
-      } : undefined,
-      validateStatus: (status: number) => status < 500 // Don't throw on 4xx errors
-    });
-    
-    try {
-      // Test connection by requesting stream info
-      const response = await this.httpClient.head(config.path || '/');
-      
-      if (response.status >= 400) {
-        return false;
-      }
-      
-      return true;
-    } catch (error) {
-      return false;
-    }
-  }
-  
-  /**
-   * Disconnect from camera
-   */
-  protected async performDisconnect(): Promise<void> {
-    // Stop all active streams
-    for (const streamId of this.streams.keys()) {
-      await this.performStopStream(streamId);
-    }
-    
-    // Clean up
-    this.streams.clear();
-    this.httpClient = null;
-    this.streamResponse = null;
-  }
-  
-  /**
-   * Start camera stream
-   * 
-   * @param options Stream options
-   */
-  protected async performStartStream(options?: StreamOptions): Promise<string> {
-    if (!this.httpClient || !this.config) {
-      throw new Error('Camera not connected');
-    }
-    
-    // Generate stream ID
-    const streamId = `stream-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-    
-    // Create stream path
-    const streamPath = this.config.path || '/';
-    
-    // Create event emitter for stream events
-    const emitter = new EventEmitter();
-    
-    // Create frame buffer
-    let latestFrame: Uint8Array = new Uint8Array(0);
-    
-    // Create boundary parser
-    const parser = new BoundaryParser('mjpegboundary', (frame: Buffer) => {
-      latestFrame = new Uint8Array(frame);
-      emitter.emit('frame', latestFrame);
-    });
-    
-    // Store stream data
-    this.streams.set(streamId, {
-      emitter,
-      parser,
-      latestFrame,
-      options
-    });
-    
-    try {
-      // Request stream
-      const response = await this.httpClient.get(streamPath, {
-        responseType: 'stream',
-        timeout: 0 // No timeout for streaming
-      });
-      
-      if (response.status !== 200) {
-        this.streams.delete(streamId);
-        throw new Error(`Failed to start stream: HTTP ${response.status}`);
-      }
-      
-      // Extract content type and boundary
-      const contentType = response.headers['content-type'] || '';
-      const boundaryMatch = contentType.match(/boundary=([^;]+)/i);
-      const boundary = boundaryMatch ? boundaryMatch[1] : 'mjpegboundary';
-      
-      // Create new parser with correct boundary
-      const streamData = this.streams.get(streamId)!;
-      streamData.parser = new BoundaryParser(boundary, (frame: Buffer) => {
-        streamData.latestFrame = new Uint8Array(frame);
-        streamData.emitter.emit('frame', streamData.latestFrame);
-      });
-      
-      this.streams.set(streamId, streamData);
-      
-      // Set up stream processing
-      const stream = response.data as Readable;
-      
-      stream.on('data', (chunk: Buffer) => {
-        try {
-          const streamData = this.streams.get(streamId);
-          if (streamData) {
-            streamData.parser.processChunk(chunk);
+      timeout: this.connectionOptions.timeout,
+      httpAgent: new http.Agent({ keepAlive: true }),
+      httpsAgent: new https.Agent({
+        keepAlive: true,
+        rejectUnauthorized: this.connectionOptions.validateCertificate
+      }),
+      headers: this.connectionOptions.headers,
+      auth: this.connectionOptions.username && this.connectionOptions.password
+        ? {
+            username: this.connectionOptions.username,
+            password: this.connectionOptions.password
           }
-        } catch (error) {
-          console.error('Error processing MJPEG stream chunk:', error);
+        : undefined,
+      responseType: 'stream'
+    });
+    
+    // Update buffer capacity in stats
+    this.stats.buffer.capacity = this.streamingOptions.bufferSize || 30;
+  }
+  
+  /**
+   * Validate connection options and apply defaults
+   * 
+   * @param options Connection options to validate
+   * @returns Validated connection options
+   */
+  private validateConnectionOptions(options: MJPEGConnectionOptions): MJPEGConnectionOptions {
+    if (!options.url) {
+      throw new Error('MJPEG connection URL is required');
+    }
+    
+    return {
+      ...options,
+      timeout: options.timeout || 10000,
+      useHttps: options.useHttps !== false,
+      validateCertificate: options.validateCertificate !== false,
+      reconnect: {
+        enabled: options.reconnect?.enabled !== false,
+        maxAttempts: options.reconnect?.maxAttempts || 10,
+        delay: options.reconnect?.delay || 1000,
+        useExponentialBackoff: options.reconnect?.useExponentialBackoff !== false
+      }
+    };
+  }
+  
+  /**
+   * Validate streaming options and apply defaults
+   * 
+   * @param options Streaming options to validate
+   * @returns Validated streaming options
+   */
+  private validateStreamingOptions(options: MJPEGStreamingOptions): MJPEGStreamingOptions {
+    return {
+      ...options,
+      maxFrameRate: options.maxFrameRate || 0,
+      enableMotionDetection: options.enableMotionDetection || false,
+      scaling: {
+        enabled: options.scaling?.enabled || false,
+        width: options.scaling?.width,
+        height: options.scaling?.height,
+        quality: options.scaling?.quality || 90
+      },
+      bufferSize: options.bufferSize || 30
+    };
+  }
+  
+  /**
+   * Connect to the MJPEG camera stream
+   * 
+   * @returns Promise that resolves when connected
+   */
+  public async connect(): Promise<void> {
+    if (this.status === MJPEGProtocolStatus.CONNECTED) {
+      return Promise.resolve();
+    }
+    
+    try {
+      this.status = MJPEGProtocolStatus.CONNECTING;
+      this.logger.info(`Connecting to MJPEG stream: ${this.connectionOptions.url}`);
+      
+      // Make HTTP request to MJPEG stream
+      const response = await this.httpClient.get(this.connectionOptions.url, {
+        maxRedirects: 5
+      });
+      
+      // Get response stream
+      this.response = response.data;
+      
+      // Check response headers
+      const contentType = response.headers['content-type'];
+      if (!contentType) {
+        throw new Error('Missing Content-Type header in MJPEG stream response');
+      }
+      
+      // Parse boundary from content type
+      if (contentType.startsWith('multipart/x-mixed-replace')) {
+        const boundaryMatch = contentType.match(/boundary=([^;]+)/i);
+        if (boundaryMatch && boundaryMatch[1]) {
+          this.boundary = boundaryMatch[1];
+          this.logger.debug(`Found MJPEG boundary: ${this.boundary}`);
+        } else {
+          throw new Error('Missing boundary in Content-Type header');
         }
+      } else {
+        throw new Error(`Unexpected Content-Type: ${contentType}, expected multipart/x-mixed-replace`);
+      }
+      
+      // Set up the stream parser
+      this.setupStreamParser();
+      
+      // Update status and stats
+      this.status = MJPEGProtocolStatus.CONNECTED;
+      this.stats.status = MJPEGProtocolStatus.CONNECTED;
+      this.stats.connectionTimestamp = new Date();
+      this.currentReconnectionAttempt = 0;
+      
+      // Emit connected event
+      this.emit(MJPEGProtocolEvent.CONNECTED, {
+        cameraId: this.id,
+        url: this.connectionOptions.url,
+        timestamp: new Date()
       });
       
-      stream.on('end', () => {
-        // Stream ended, remove it
-        this.performStopStream(streamId).catch(console.error);
-      });
-      
-      stream.on('error', (error: Error) => {
-        console.error('MJPEG stream error:', error);
-        this.performStopStream(streamId).catch(console.error);
-      });
-      
-      // Store response to close later
-      this.streamResponse = response;
-      
-      return streamId;
+      return Promise.resolve();
     } catch (error) {
-      // Clean up on error
-      this.streams.delete(streamId);
-      throw error;
+      this.handleConnectionError(error instanceof Error ? error : new Error(String(error)));
+      return Promise.reject(error);
     }
   }
   
   /**
-   * Stop camera stream
+   * Disconnect from the MJPEG camera stream
    * 
-   * @param streamId Stream identifier
+   * @returns Promise that resolves when disconnected
    */
-  protected async performStopStream(streamId: string): Promise<void> {
-    const streamData = this.streams.get(streamId);
-    if (!streamData) {
+  public async disconnect(): Promise<void> {
+    if (this.status === MJPEGProtocolStatus.DISCONNECTED) {
+      return Promise.resolve();
+    }
+    
+    try {
+      // Clear reconnection timer if any
+      if (this.reconnectionTimer) {
+        clearTimeout(this.reconnectionTimer);
+        this.reconnectionTimer = undefined;
+      }
+      
+      // Abort response if any
+      if (this.response) {
+        this.response.destroy();
+        this.response = undefined;
+      }
+      
+      // Update status and stats
+      this.status = MJPEGProtocolStatus.DISCONNECTED;
+      this.stats.status = MJPEGProtocolStatus.DISCONNECTED;
+      
+      if (this.stats.connectionTimestamp) {
+        this.stats.timeConnected = 
+          (Date.now() - this.stats.connectionTimestamp.getTime()) / 1000;
+      }
+      
+      // Emit disconnected event
+      this.emit(MJPEGProtocolEvent.DISCONNECTED, {
+        cameraId: this.id,
+        timestamp: new Date()
+      });
+      
+      return Promise.resolve();
+    } catch (error) {
+      this.logger.error(`Error during MJPEG disconnect: ${error}`);
+      return Promise.reject(error);
+    }
+  }
+  
+  /**
+   * Restart the MJPEG camera stream connection
+   * 
+   * @returns Promise that resolves when reconnected
+   */
+  public async restart(): Promise<void> {
+    try {
+      await this.disconnect();
+      await this.connect();
+      return Promise.resolve();
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+  
+  /**
+   * Check if the protocol is connected
+   * 
+   * @returns True if connected, false otherwise
+   */
+  public isConnected(): boolean {
+    return this.status === MJPEGProtocolStatus.CONNECTED;
+  }
+  
+  /**
+   * Set up the stream parser for MJPEG
+   */
+  private setupStreamParser(): void {
+    if (!this.response) {
       return;
     }
     
-    // Remove listeners and clean up
-    streamData.emitter.removeAllListeners();
+    // Reset parser state
+    this.parserState = 'boundary';
+    this.currentFrameBuffer = [];
+    this.currentFrameHeaders = {};
     
-    // Close stream if it's the last one
-    if (this.streams.size === 1 && this.streamResponse) {
-      const stream = this.streamResponse.data as Readable;
-      stream.destroy();
-      this.streamResponse = null;
-    }
+    // Parse the MJPEG stream
+    this.response.on('data', (chunk: Buffer) => {
+      this.parseChunk(chunk);
+    });
     
-    // Remove stream from registry
-    this.streams.delete(streamId);
+    // Handle errors
+    this.response.on('error', (error) => {
+      this.handleConnectionError(error);
+    });
+    
+    // Handle end of stream
+    this.response.on('end', () => {
+      if (this.status === MJPEGProtocolStatus.CONNECTED) {
+        this.logger.warn('MJPEG stream ended unexpectedly');
+        this.handleUnexpectedDisconnection();
+      }
+    });
+    
+    // Handle close
+    this.response.on('close', () => {
+      if (this.status === MJPEGProtocolStatus.CONNECTED) {
+        this.logger.warn('MJPEG stream closed unexpectedly');
+        this.handleUnexpectedDisconnection();
+      }
+    });
   }
   
   /**
-   * Get a frame from camera
+   * Parse a chunk of data from the MJPEG stream
+   * 
+   * @param chunk Chunk of data to parse
    */
-  public async getFrame(): Promise<Uint8Array> {
-    if (this.streams.size === 0) {
-      // No active stream, start one
-      const streamId = await this.startStream();
+  private parseChunk(chunk: Buffer): void {
+    // Update received bytes for bitrate calculation
+    this.stats.bytesReceived += chunk.length;
+    this.bitrateCalculation.bytesSinceLastCalculation += chunk.length;
+    
+    // Handle different parser states
+    switch (this.parserState) {
+      case 'boundary':
+        this.parseBoundary(chunk);
+        break;
+      case 'headers':
+        this.parseHeaders(chunk);
+        break;
+      case 'content':
+        this.parseContent(chunk);
+        break;
+    }
+    
+    // Calculate frame rate and bitrate periodically
+    this.calculateMetrics();
+  }
+  
+  /**
+   * Parse boundary in MJPEG stream
+   * 
+   * @param chunk Chunk of data to parse
+   */
+  private parseBoundary(chunk: Buffer): void {
+    // Convert chunk to string for easier processing
+    const chunkStr = chunk.toString('utf8');
+    
+    // Look for boundary
+    if (chunkStr.includes(this.boundary)) {
+      // Move to headers state
+      this.parserState = 'headers';
       
-      // Wait for first frame
-      const streamData = this.streams.get(streamId)!;
+      // Keep data after boundary for header parsing
+      const boundaryIndex = chunkStr.indexOf(this.boundary) + this.boundary.length;
+      const remainingData = chunk.slice(boundaryIndex);
       
-      if (streamData.latestFrame.length === 0) {
-        // Wait for frame
-        await new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            streamData.emitter.removeListener('frame', frameHandler);
-            reject(new Error('Timeout waiting for frame'));
-          }, 5000);
-          
-          const frameHandler = () => {
-            clearTimeout(timeout);
-            resolve(true);
-          };
-          
-          streamData.emitter.once('frame', frameHandler);
-        });
+      if (remainingData.length > 0) {
+        this.parseHeaders(remainingData);
+      }
+    }
+  }
+  
+  /**
+   * Parse headers in MJPEG stream
+   * 
+   * @param chunk Chunk of data to parse
+   */
+  private parseHeaders(chunk: Buffer): void {
+    // Convert chunk to string for easier processing
+    const chunkStr = chunk.toString('utf8');
+    
+    // Check for end of headers (double CRLF)
+    const headersEndIndex = chunkStr.indexOf('\r\n\r\n');
+    
+    if (headersEndIndex !== -1) {
+      // Extract headers
+      const headersStr = chunkStr.substring(0, headersEndIndex);
+      const headerLines = headersStr.split('\r\n');
+      
+      // Parse headers
+      for (const line of headerLines) {
+        if (line.trim().length === 0) continue;
+        
+        const colonIndex = line.indexOf(':');
+        if (colonIndex !== -1) {
+          const name = line.substring(0, colonIndex).trim().toLowerCase();
+          const value = line.substring(colonIndex + 1).trim();
+          this.currentFrameHeaders[name] = value;
+        }
       }
       
-      const frame = streamData.latestFrame;
+      // Move to content state
+      this.parserState = 'content';
       
-      // Stop stream
-      await this.performStopStream(streamId);
+      // Keep data after headers for content parsing
+      const remainingData = chunk.slice(headersEndIndex + 4); // +4 for \r\n\r\n
       
-      return frame;
+      if (remainingData.length > 0) {
+        this.parseContent(remainingData);
+      }
+    }
+  }
+  
+  /**
+   * Parse content in MJPEG stream
+   * 
+   * @param chunk Chunk of data to parse
+   */
+  private parseContent(chunk: Buffer): void {
+    // Get content length from headers
+    const contentLength = parseInt(this.currentFrameHeaders['content-length'] || '0', 10);
+    
+    if (isNaN(contentLength) || contentLength <= 0) {
+      // No content length, try to detect boundary
+      const chunkStr = chunk.toString('utf8');
+      const boundaryIndex = chunkStr.indexOf('--' + this.boundary);
+      
+      if (boundaryIndex !== -1) {
+        // Found boundary, extract frame data before boundary
+        const frameData = chunk.slice(0, boundaryIndex);
+        this.currentFrameBuffer.push(frameData);
+        
+        // Process the frame
+        this.processFrame();
+        
+        // Move to boundary state
+        this.parserState = 'boundary';
+        
+        // Keep data after boundary for next frame
+        const remainingData = chunk.slice(boundaryIndex);
+        
+        if (remainingData.length > 0) {
+          this.parseBoundary(remainingData);
+        }
+      } else {
+        // No boundary found, store chunk for later
+        this.currentFrameBuffer.push(chunk);
+      }
     } else {
-      // Return latest frame from first stream
-      const [streamId] = this.streams.keys();
-      const streamData = this.streams.get(streamId)!;
+      // Content length specified, check current buffer size
+      const currentSize = this.currentFrameBuffer.reduce((size, buf) => size + buf.length, 0);
       
-      if (streamData.latestFrame.length === 0) {
-        // Wait for frame
-        await new Promise((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            streamData.emitter.removeListener('frame', frameHandler);
-            reject(new Error('Timeout waiting for frame'));
-          }, 5000);
-          
-          const frameHandler = () => {
-            clearTimeout(timeout);
-            resolve(true);
-          };
-          
-          streamData.emitter.once('frame', frameHandler);
+      if (currentSize + chunk.length >= contentLength) {
+        // We have enough data to complete the frame
+        const remainingBytes = contentLength - currentSize;
+        this.currentFrameBuffer.push(chunk.slice(0, remainingBytes));
+        
+        // Process the frame
+        this.processFrame();
+        
+        // Move to boundary state
+        this.parserState = 'boundary';
+        
+        // Keep data after content for next frame
+        const remainingData = chunk.slice(remainingBytes);
+        
+        if (remainingData.length > 0) {
+          this.parseBoundary(remainingData);
+        }
+      } else {
+        // Still need more data
+        this.currentFrameBuffer.push(chunk);
+      }
+    }
+  }
+  
+  /**
+   * Process a complete frame
+   */
+  private processFrame(): void {
+    try {
+      // Create frame data buffer
+      const frameData = Buffer.concat(this.currentFrameBuffer);
+      
+      // Get content type
+      const contentType = this.currentFrameHeaders['content-type'] || 'image/jpeg';
+      
+      // Create frame object
+      const frame: MJPEGFrame = {
+        data: frameData,
+        timestamp: new Date(),
+        sequenceNumber: this.sequenceNumber++,
+        contentType: contentType,
+        contentLength: frameData.length,
+        headers: { ...this.currentFrameHeaders }
+      };
+      
+      // Add frame to buffer
+      this.addFrameToBuffer(frame);
+      
+      // Update stats
+      this.stats.framesReceived++;
+      this.frameRateCalculation.framesSinceLastCalculation++;
+      
+      // Update last frame timestamp
+      this.lastFrameTimestamp = Date.now();
+      
+      // Reset frame buffer and headers for next frame
+      this.currentFrameBuffer = [];
+      this.currentFrameHeaders = {};
+      
+      // Emit frame received event
+      this.emit(MJPEGProtocolEvent.FRAME_RECEIVED, {
+        cameraId: this.id,
+        frame: frame
+      });
+    } catch (error) {
+      this.logger.error(`Error processing MJPEG frame: ${error}`);
+      
+      // Reset frame buffer and headers for next frame
+      this.currentFrameBuffer = [];
+      this.currentFrameHeaders = {};
+    }
+  }
+  
+  /**
+   * Add frame to the frame buffer
+   * 
+   * @param frame Frame to add
+   */
+  private addFrameToBuffer(frame: MJPEGFrame): void {
+    // Check buffer size limit
+    if (this.frameBuffer.length >= (this.streamingOptions.bufferSize || 30)) {
+      // Remove oldest frame
+      this.frameBuffer.shift();
+      
+      // Emit buffer full event if this is the first overflow
+      if (this.frameBuffer.length === (this.streamingOptions.bufferSize || 30)) {
+        this.emit(MJPEGProtocolEvent.BUFFER_FULL, {
+          cameraId: this.id,
+          bufferSize: this.frameBuffer.length
+        });
+      }
+    }
+    
+    // Add frame to buffer
+    this.frameBuffer.push(frame);
+    
+    // Update buffer stats
+    this.stats.buffer.size = this.frameBuffer.length;
+    this.stats.buffer.utilization = 
+      (this.frameBuffer.length / (this.streamingOptions.bufferSize || 30)) * 100;
+    
+    // Emit buffer empty event if buffer was empty
+    if (this.frameBuffer.length === 1) {
+      this.emit(MJPEGProtocolEvent.BUFFER_EMPTY, {
+        cameraId: this.id,
+        bufferSize: this.frameBuffer.length
+      });
+    }
+  }
+  
+  /**
+   * Calculate frame rate and bitrate
+   */
+  private calculateMetrics(): void {
+    const now = Date.now();
+    
+    // Calculate frame rate every second
+    if (now - this.frameRateCalculation.lastCalculation >= 1000) {
+      const seconds = (now - this.frameRateCalculation.lastCalculation) / 1000;
+      this.frameRate = this.frameRateCalculation.framesSinceLastCalculation / seconds;
+      
+      // Update stats
+      this.stats.frameRate = this.frameRate;
+      
+      // Emit frame rate change event if significant change
+      const previousFrameRate = this.stats.frameRate;
+      if (Math.abs(this.frameRate - previousFrameRate) > 1) {
+        this.emit(MJPEGProtocolEvent.FRAME_RATE_CHANGE, {
+          cameraId: this.id,
+          previousFrameRate: previousFrameRate,
+          currentFrameRate: this.frameRate
         });
       }
       
-      return streamData.latestFrame;
-    }
-  }
-  
-  /**
-   * Get camera information
-   */
-  public async getCameraInfo(): Promise<CameraInfo> {
-    if (this.cameraInfoCache) {
-      return this.cameraInfoCache;
+      // Reset frame rate calculation
+      this.frameRateCalculation.lastCalculation = now;
+      this.frameRateCalculation.framesSinceLastCalculation = 0;
     }
     
-    if (!this.httpClient || !this.config) {
-      throw new Error('Camera not connected');
-    }
-    
-    // For MJPEG, we don't have a standard way to get camera info
-    // We'll just provide basic info based on the connection
-    const info: CameraInfo = {
-      manufacturer: 'Unknown',
-      model: 'MJPEG Camera',
-      firmwareVersion: 'Unknown',
-      additionalInfo: {
-        protocol: this.protocolName,
-        url: `http://${this.config.host}:${this.config.port}${this.config.path || '/'}`
-      }
-    };
-    
-    // Try to get a frame to determine resolution
-    try {
-      const frame = await this.getFrame();
+    // Calculate bitrate every second
+    if (now - this.bitrateCalculation.lastCalculation >= 1000) {
+      const seconds = (now - this.bitrateCalculation.lastCalculation) / 1000;
+      const bitsPerSecond = (this.bitrateCalculation.bytesSinceLastCalculation * 8) / seconds;
       
-      // In a real implementation, we would extract image dimensions
-      // from the JPEG header, but for simplicity, we'll just note
-      // that we have frame data
-      info.additionalInfo = {
-        ...info.additionalInfo,
-        hasFrameData: frame.length > 0,
-        frameSize: frame.length
-      };
-    } catch (error) {
-      // Ignore errors
-    }
-    
-    this.cameraInfoCache = info;
-    return info;
-  }
-  
-  /**
-   * Get available stream profiles
-   */
-  public async getAvailableStreams(): Promise<StreamProfile[]> {
-    // MJPEG typically doesn't have multiple stream profiles
-    // We'll just return a single profile based on the current connection
-    
-    if (!this.config) {
-      throw new Error('Camera not connected');
-    }
-    
-    // Create a single default profile
-    const profile: StreamProfile = {
-      id: 'default',
-      name: 'Default MJPEG Stream',
-      encoding: 'mjpeg',
-      resolution: { width: 640, height: 480 }, // Default resolution
-      frameRate: 15, // Default frame rate
-      parameters: {
-        path: this.config.path || '/'
-      }
-    };
-    
-    // Try to get a frame to determine actual resolution
-    try {
-      const frame = await this.getFrame();
+      // Update stats
+      this.stats.bitrate = bitsPerSecond;
       
-      // In a real implementation, we would extract image dimensions
-      // from the JPEG header, but for now we'll stick with defaults
-    } catch (error) {
-      // Ignore errors
-    }
-    
-    return [profile];
-  }
-  
-  /**
-   * Get protocol-specific options
-   */
-  public getProtocolOptions(): Record<string, any> {
-    return {
-      // MJPEG-specific options
-      streamPath: this.config?.path || '/',
-      compression: 'auto',
-      forceMultipart: true
-    };
-  }
-  
-  /**
-   * Set protocol-specific options
-   * 
-   * @param options Protocol options
-   */
-  public async setProtocolOptions(options: Record<string, any>): Promise<void> {
-    // Most options can't be changed for MJPEG streams
-    // We'll just update the config
-    if (this.config) {
-      if (options.streamPath) {
-        this.config.path = options.streamPath;
-      }
+      // Reset bitrate calculation
+      this.bitrateCalculation.lastCalculation = now;
+      this.bitrateCalculation.bytesSinceLastCalculation = 0;
     }
   }
   
   /**
-   * Perform protocol-specific connection test
+   * Handle connection error
    * 
-   * @param config Camera configuration
+   * @param error Error to handle
    */
-  protected async performTestConnection(config: CameraConfig): Promise<boolean> {
-    const timeout = config.timeout || 5000;
+  private handleConnectionError(error: Error): void {
+    this.logger.error(`MJPEG connection error: ${error.message}`);
     
-    try {
-      // Create HTTP client for testing
-      const client = axios.create({
-        baseURL: `http://${config.host}:${config.port}`,
-        timeout,
-        auth: config.username && config.password ? {
-          username: config.username,
-          password: config.password
-        } : undefined,
-        validateStatus: (status: number) => status < 500 // Don't throw on 4xx errors
+    // Update status and stats
+    this.status = MJPEGProtocolStatus.ERROR;
+    this.stats.status = MJPEGProtocolStatus.ERROR;
+    this.stats.lastError = error.message;
+    
+    // Emit error event
+    this.emit(MJPEGProtocolEvent.ERROR, {
+      cameraId: this.id,
+      error: error,
+      timestamp: new Date()
+    });
+    
+    // Try to reconnect if enabled
+    this.handleUnexpectedDisconnection();
+  }
+  
+  /**
+   * Handle unexpected disconnection
+   */
+  private handleUnexpectedDisconnection(): void {
+    // Clear current response
+    this.response = undefined;
+    
+    // Check reconnection settings
+    if (!this.connectionOptions.reconnect?.enabled) {
+      this.status = MJPEGProtocolStatus.DISCONNECTED;
+      this.stats.status = MJPEGProtocolStatus.DISCONNECTED;
+      return;
+    }
+    
+    // Check max reconnection attempts
+    if (
+      this.connectionOptions.reconnect.maxAttempts !== undefined &&
+      this.currentReconnectionAttempt >= this.connectionOptions.reconnect.maxAttempts
+    ) {
+      this.logger.warn(`MJPEG reached maximum reconnection attempts (${this.connectionOptions.reconnect.maxAttempts})`);
+      this.status = MJPEGProtocolStatus.DISCONNECTED;
+      this.stats.status = MJPEGProtocolStatus.DISCONNECTED;
+      return;
+    }
+    
+    // Update status and stats
+    this.status = MJPEGProtocolStatus.RECONNECTING;
+    this.stats.status = MJPEGProtocolStatus.RECONNECTING;
+    this.currentReconnectionAttempt++;
+    this.stats.reconnectionAttempts++;
+    
+    // Calculate reconnection delay with exponential backoff if enabled
+    let reconnectionDelay = this.connectionOptions.reconnect.delay || 1000;
+    
+    if (
+      this.connectionOptions.reconnect.useExponentialBackoff &&
+      this.currentReconnectionAttempt > 1
+    ) {
+      reconnectionDelay = reconnectionDelay * Math.pow(2, this.currentReconnectionAttempt - 1);
+      reconnectionDelay = Math.min(reconnectionDelay, 30000); // Maximum 30 seconds
+    }
+    
+    // Emit reconnecting event
+    this.emit(MJPEGProtocolEvent.RECONNECTING, {
+      cameraId: this.id,
+      attempt: this.currentReconnectionAttempt,
+      delay: reconnectionDelay,
+      timestamp: new Date()
+    });
+    
+    // Set reconnection timer
+    this.reconnectionTimer = setTimeout(() => {
+      this.connect().catch((error) => {
+        this.logger.error(`MJPEG reconnection failed: ${error.message}`);
+        this.handleUnexpectedDisconnection();
       });
-      
-      // Test connection
-      const response = await client.head(config.path || '/');
-      
-      return response.status < 400;
-    } catch (error) {
-      return false;
+    }, reconnectionDelay);
+  }
+  
+  /**
+   * Get the current protocol status
+   * 
+   * @returns Current protocol status
+   */
+  public getStatus(): MJPEGProtocolStatus {
+    return this.status;
+  }
+  
+  /**
+   * Get protocol statistics
+   * 
+   * @returns Protocol statistics
+   */
+  public getStats(): MJPEGProtocolStats {
+    // Update time connected if connected
+    if (
+      this.status === MJPEGProtocolStatus.CONNECTED &&
+      this.stats.connectionTimestamp
+    ) {
+      this.stats.timeConnected = 
+        (Date.now() - this.stats.connectionTimestamp.getTime()) / 1000;
     }
+    
+    return { ...this.stats };
   }
   
   /**
-   * PTZ methods (not supported in basic MJPEG)
+   * Get the latest frame from the buffer
+   * 
+   * @returns Latest frame or undefined if buffer is empty
    */
-  protected async performMove(movement: PtzMovement): Promise<void> {
-    throw new Error('PTZ controls not supported by MJPEG protocol');
-  }
-  
-  protected async performGotoPreset(presetId: string): Promise<void> {
-    throw new Error('PTZ presets not supported by MJPEG protocol');
-  }
-  
-  protected async performSavePreset(presetName: string): Promise<string> {
-    throw new Error('PTZ presets not supported by MJPEG protocol');
+  public getLatestFrame(): MJPEGFrame | undefined {
+    if (this.frameBuffer.length === 0) {
+      return undefined;
+    }
+    
+    return this.frameBuffer[this.frameBuffer.length - 1];
   }
   
   /**
-   * Event subscription (not supported in basic MJPEG)
+   * Get frame at specified index from the buffer
+   * 
+   * @param index Index of the frame to get (negative index counts from the end)
+   * @returns Frame at specified index or undefined if index is out of bounds
    */
-  protected async performSubscribeToEvents(eventTypes: string[]): Promise<string> {
-    throw new Error('Event subscription not supported by MJPEG protocol');
+  public getFrameAt(index: number): MJPEGFrame | undefined {
+    if (this.frameBuffer.length === 0) {
+      return undefined;
+    }
+    
+    // Handle negative index (count from the end)
+    if (index < 0) {
+      index = this.frameBuffer.length + index;
+    }
+    
+    // Check bounds
+    if (index < 0 || index >= this.frameBuffer.length) {
+      return undefined;
+    }
+    
+    return this.frameBuffer[index];
   }
   
-  protected async performUnsubscribeFromEvents(subscriptionId: string): Promise<void> {
-    throw new Error('Event subscription not supported by MJPEG protocol');
+  /**
+   * Get all frames in the buffer
+   * 
+   * @returns All frames in the buffer
+   */
+  public getAllFrames(): MJPEGFrame[] {
+    return [...this.frameBuffer];
+  }
+  
+  /**
+   * Clear the frame buffer
+   */
+  public clearFrameBuffer(): void {
+    this.frameBuffer = [];
+    this.stats.buffer.size = 0;
+    this.stats.buffer.utilization = 0;
+    
+    // Emit buffer empty event
+    this.emit(MJPEGProtocolEvent.BUFFER_EMPTY, {
+      cameraId: this.id,
+      bufferSize: 0
+    });
+  }
+  
+  /**
+   * Take a snapshot of the current frame
+   * 
+   * @returns Promise that resolves with the snapshot data
+   */
+  public async takeSnapshot(): Promise<Buffer> {
+    if (this.status !== MJPEGProtocolStatus.CONNECTED) {
+      throw new Error('Cannot take snapshot: MJPEG stream not connected');
+    }
+    
+    const frame = this.getLatestFrame();
+    if (!frame) {
+      throw new Error('Cannot take snapshot: No frames available');
+    }
+    
+    return frame.data;
+  }
+  
+  /**
+   * Get supported capabilities
+   * 
+   * @returns Set of supported capabilities
+   */
+  public getCapabilities(): Set<CameraCapability> {
+    return new Set(this.capabilities);
+  }
+  
+  /**
+   * Check if capability is supported
+   * 
+   * @param capability Capability to check
+   * @returns True if capability is supported, false otherwise
+   */
+  public hasCapability(capability: CameraCapability): boolean {
+    return this.capabilities.has(capability);
+  }
+  
+  /**
+   * Create a readable stream of MJPEG frames
+   * 
+   * @returns Readable stream of MJPEG frames
+   */
+  public createStream(): Readable {
+    const stream = new Readable({
+      objectMode: true,
+      read() {} // No-op, we push frames in the event handler
+    });
+    
+    // Handle frame received event
+    const frameHandler = (event: any) => {
+      stream.push(event.frame);
+    };
+    
+    // Handle disconnect event
+    const disconnectHandler = () => {
+      stream.push(null); // End the stream
+      cleanup();
+    };
+    
+    // Handle error event
+    const errorHandler = (event: any) => {
+      stream.emit('error', event.error);
+      cleanup();
+    };
+    
+    // Clean up event handlers
+    const cleanup = () => {
+      this.removeListener(MJPEGProtocolEvent.FRAME_RECEIVED, frameHandler);
+      this.removeListener(MJPEGProtocolEvent.DISCONNECTED, disconnectHandler);
+      this.removeListener(MJPEGProtocolEvent.ERROR, errorHandler);
+    };
+    
+    // Set up event handlers
+    this.on(MJPEGProtocolEvent.FRAME_RECEIVED, frameHandler);
+    this.on(MJPEGProtocolEvent.DISCONNECTED, disconnectHandler);
+    this.on(MJPEGProtocolEvent.ERROR, errorHandler);
+    
+    // Clean up when the stream is closed
+    stream.on('close', cleanup);
+    
+    return stream;
+  }
+  
+  /**
+   * Create a transform stream that converts MJPEG frames to image buffers
+   * 
+   * @returns Transform stream that converts MJPEG frames to image buffers
+   */
+  public createImageStream(): Transform {
+    const transform = new Transform({
+      objectMode: true,
+      transform(frame: MJPEGFrame, encoding, callback) {
+        try {
+          this.push(frame.data);
+          callback();
+        } catch (error) {
+          callback(error instanceof Error ? error : new Error(String(error)));
+        }
+      }
+    });
+    
+    const stream = this.createStream();
+    stream.pipe(transform);
+    
+    // Forward errors
+    stream.on('error', (error) => {
+      transform.emit('error', error);
+    });
+    
+    return transform;
   }
 }
