@@ -78,6 +78,24 @@ const config = {
   logging: {
     level: process.env.LOG_LEVEL || 'info',
     format: process.env.LOG_FORMAT || 'json'
+  },
+  
+  // Hardware acceleration configuration
+  hardware: {
+    // Enable/disable hardware acceleration
+    accelerationEnabled: process.env.HARDWARE_ACCELERATION_ENABLED !== 'false',
+    
+    // Preferred platform (nvidia_cuda, nvidia_tensorrt, amd_rocm, intel_openvino, etc.)
+    preferredPlatform: process.env.PREFERRED_ACCELERATION_PLATFORM || 'nvidia_tensorrt',
+    
+    // Platform for inference tasks
+    inferencePlatform: process.env.INFERENCE_ACCELERATION_PLATFORM || 'nvidia_tensorrt',
+    
+    // Platform for image processing tasks
+    imageProcessingPlatform: process.env.IMAGE_PROCESSING_ACCELERATION_PLATFORM || 'nvidia_cuda',
+    
+    // Balance between performance (1.0) and power efficiency (0.0)
+    perfPowerBalance: parseFloat(process.env.ACCELERATION_PERF_POWER_BALANCE || '0.7')
   }
 };
 

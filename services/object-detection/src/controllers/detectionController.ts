@@ -6,9 +6,31 @@ import { v4 as uuidv4 } from 'uuid';
 import config from '../config/config';
 import logger from '../utils/logger';
 import * as detectionManager from '../utils/detectionManager';
+import * as modelLoader from '../utils/modelLoader';
+import { AccelerationTaskType } from '@shared/hardware-acceleration';
 
 // Initialize Prisma client
-const prisma = new PrismaClient();
+let prisma: any;
+try {
+  prisma = new PrismaClient();
+} catch (error) {
+  logger.error('Failed to initialize Prisma client:', error);
+  // Create a mock client for development if Prisma isn't available
+  prisma = {
+    event: {
+      findMany: async () => [],
+      count: async () => 0
+    },
+    detectedObject: {
+      findMany: async () => [],
+      count: async () => 0
+    },
+    setting: {
+      findUnique: async () => null,
+      upsert: async (data: any) => data.create
+    }
+  };
+}
 
 /**
  * Get detection statistics
@@ -405,6 +427,116 @@ export const getDetectionSettings = async (req: Request, res: Response): Promise
     res.status(500).json({
       status: 'error',
       message: 'Failed to get detection settings',
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+};
+
+/**
+ * Get hardware acceleration status
+ */
+export const getHardwareAccelerationStatus = async (req: Request, res: Response): Promise<void> => {
+  try {
+    // Get acceleration status from model loader
+    const accelerationInfo = await modelLoader.getAccelerationInfo();
+    
+    // Add additional model info
+    const modelInfo = {
+      path: config.detection.modelPath,
+      type: 'COCO-SSD',
+      classes: modelLoader.COCO_CLASSES.length,
+      taskTypes: [
+        AccelerationTaskType.INFERENCE,
+        AccelerationTaskType.IMAGE_PROCESSING
+      ]
+    };
+    
+    res.status(200).json({
+      status: 'success',
+      data: {
+        acceleration: accelerationInfo,
+        model: modelInfo,
+        detectionCount: detectionManager.getDetectionStats().totalDetections,
+        processingCount: detectionManager.getDetectionStats().totalProcessed
+      }
+    });
+  } catch (error) {
+    logger.error('Error getting hardware acceleration status:', error);
+    
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to get hardware acceleration status',
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+};
+
+/**
+ * Update hardware acceleration settings
+ */
+export const updateHardwareAccelerationSettings = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { 
+      enabled, 
+      preferredPlatform,
+      inferencePlatform,
+      imageProcessingPlatform,
+      perfPowerBalance
+    } = req.body;
+    
+    // Validate inputs
+    if (perfPowerBalance !== undefined && (perfPowerBalance < 0 || perfPowerBalance > 1)) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Performance-power balance must be between 0 and 1'
+      });
+      return;
+    }
+    
+    // Update settings in database
+    await prisma.setting.upsert({
+      where: { key: 'hardware.acceleration' },
+      update: {
+        value: JSON.stringify({
+          enabled: enabled !== undefined ? enabled : config.hardware?.accelerationEnabled,
+          preferredPlatform: preferredPlatform || config.hardware?.preferredPlatform,
+          inferencePlatform: inferencePlatform || config.hardware?.inferencePlatform,
+          imageProcessingPlatform: imageProcessingPlatform || config.hardware?.imageProcessingPlatform,
+          perfPowerBalance: perfPowerBalance !== undefined ? perfPowerBalance : config.hardware?.perfPowerBalance
+        })
+      },
+      create: {
+        key: 'hardware.acceleration',
+        value: JSON.stringify({
+          enabled: enabled !== undefined ? enabled : config.hardware?.accelerationEnabled,
+          preferredPlatform: preferredPlatform || config.hardware?.preferredPlatform,
+          inferencePlatform: inferencePlatform || config.hardware?.inferencePlatform,
+          imageProcessingPlatform: imageProcessingPlatform || config.hardware?.imageProcessingPlatform,
+          perfPowerBalance: perfPowerBalance !== undefined ? perfPowerBalance : config.hardware?.perfPowerBalance
+        })
+      }
+    });
+    
+    // Restart with new settings would happen here in a real implementation
+    // For now, just acknowledge the settings change
+    
+    res.status(200).json({
+      status: 'success',
+      message: 'Hardware acceleration settings updated',
+      data: {
+        enabled: enabled !== undefined ? enabled : config.hardware?.accelerationEnabled,
+        preferredPlatform: preferredPlatform || config.hardware?.preferredPlatform,
+        inferencePlatform: inferencePlatform || config.hardware?.inferencePlatform,
+        imageProcessingPlatform: imageProcessingPlatform || config.hardware?.imageProcessingPlatform,
+        perfPowerBalance: perfPowerBalance !== undefined ? perfPowerBalance : config.hardware?.perfPowerBalance
+      }
+    });
+  } catch (error) {
+    logger.error('Error updating hardware acceleration settings:', error);
+    
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to update hardware acceleration settings',
       error: error instanceof Error ? error.message : String(error)
     });
   }

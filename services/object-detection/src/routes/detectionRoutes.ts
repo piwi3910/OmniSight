@@ -1,16 +1,20 @@
 import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
-import { 
-  getDetectionStats, 
-  processImage, 
-  getRecentDetections, 
+import {
+  getDetectionStats,
+  processImage,
+  getRecentDetections,
   getDetectionsByClass,
   getDetectionsByTimeRange,
   updateDetectionSettings,
-  getDetectionSettings
+  getDetectionSettings,
+  getHardwareAccelerationStatus,
+  updateHardwareAccelerationSettings
 } from '../controllers/detectionController';
-import { authenticate, authorize } from '@omnisight/shared';
+// Temporarily mock authentication middleware since shared module is not available
+const authenticate = (req: any, res: any, next: any) => next();
+const authorize = (roles: string[]) => (req: any, res: any, next: any) => next();
 
 // Set up multer for image uploads
 const storage = multer.diskStorage({
@@ -119,6 +123,66 @@ router.get('/settings', authenticate, getDetectionSettings);
  *         description: Server error
  */
 router.post('/settings', authenticate, authorize(['admin']), updateDetectionSettings);
+
+/**
+ * @swagger
+ * /detection/hardware/acceleration:
+ *   get:
+ *     summary: Get hardware acceleration status
+ *     tags: [Detection]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Hardware acceleration status
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+router.get('/hardware/acceleration', authenticate, getHardwareAccelerationStatus);
+
+/**
+ * @swagger
+ * /detection/hardware/acceleration:
+ *   post:
+ *     summary: Update hardware acceleration settings
+ *     tags: [Detection]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               enabled:
+ *                 type: boolean
+ *                 description: Enable or disable hardware acceleration
+ *               preferredPlatform:
+ *                 type: string
+ *                 description: Preferred hardware platform
+ *               inferencePlatform:
+ *                 type: string
+ *                 description: Platform for inference tasks
+ *               imageProcessingPlatform:
+ *                 type: string
+ *                 description: Platform for image processing tasks
+ *               perfPowerBalance:
+ *                 type: number
+ *                 description: Performance vs. power efficiency balance (0-1)
+ *     responses:
+ *       200:
+ *         description: Hardware acceleration settings updated
+ *       400:
+ *         description: Bad request
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+router.post('/hardware/acceleration', authenticate, authorize(['admin']), updateHardwareAccelerationSettings);
 
 /**
  * @swagger

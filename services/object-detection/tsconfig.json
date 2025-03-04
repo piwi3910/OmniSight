@@ -4,7 +4,7 @@
     "module": "commonjs",
     "lib": ["ES2020"],
     "outDir": "./dist",
-    "rootDir": "./src",
+    "rootDir": "../../",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
@@ -13,11 +13,12 @@
     "declaration": true,
     "sourceMap": true,
     "typeRoots": ["./node_modules/@types", "./src/types"],
-    "baseUrl": ".",
+    "baseUrl": "../../",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["services/object-detection/src/*"],
+      "@shared/*": ["shared/*"]
     }
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "../../shared/hardware-acceleration/**/*"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]
 }
