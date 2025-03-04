@@ -32,6 +32,7 @@ import {
   Refresh as RefreshIcon
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
+import HardwareAccelerationSettings from '../components/HardwareAccelerationSettings';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -243,7 +244,8 @@ const Settings: React.FC = () => {
           <Tab label="Recording" {...a11yProps(1)} />
           <Tab label="Detection" {...a11yProps(2)} />
           <Tab label="Notifications" {...a11yProps(3)} />
-          <Tab label="User Accounts" {...a11yProps(4)} />
+          <Tab label="Hardware Acceleration" {...a11yProps(4)} />
+          <Tab label="User Accounts" {...a11yProps(5)} />
         </Tabs>
         
         {/* General Settings */}
@@ -609,8 +611,13 @@ const Settings: React.FC = () => {
           </Grid>
         </TabPanel>
         
-        {/* User Accounts */}
+        {/* Hardware Acceleration */}
         <TabPanel value={tabValue} index={4}>
+          <HardwareAccelerationSettings />
+        </TabPanel>
+        
+        {/* User Accounts */}
+        <TabPanel value={tabValue} index={5}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Typography variant="h6">
               User Accounts
