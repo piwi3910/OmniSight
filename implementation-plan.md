@@ -239,7 +239,7 @@ This document outlines the implementation plan for completing the OmniSight vide
 - [x] Prepare release notes
 - [x] Create demo videos for key features
 
-### Phase 6: Extended Camera Protocol Support (Week 8-9) ⏳
+### Phase 6: Extended Camera Protocol Support (Week 8-9) ✅
 
 #### 6.1 MJPEG Protocol Implementation ✅
 
@@ -339,6 +339,62 @@ This document outlines the implementation plan for completing the OmniSight vide
 - [x] Add API documentation and developer resources
 - [x] Create extension management interface for administrators
 - [x] Implement extension capability discovery mechanisms
+
+### Phase 9: Hardware Acceleration ⏳
+
+#### 9.1 GPU Acceleration Framework ⏳
+
+- [x] Design hardware acceleration abstraction layer
+- [x] Implement hardware detection and capability discovery
+- [x] Create unified configuration interface for hardware acceleration
+- [x] Add runtime acceleration switching capabilities
+- [x] Implement performance monitoring and benchmarking
+- [x] Create fallback mechanisms for unsupported hardware
+
+#### 9.2 NVIDIA GPU Acceleration ⏳
+
+- [x] Integrate NVIDIA NVENC for hardware-accelerated encoding
+- [x] Implement NVIDIA NVDEC for hardware-accelerated decoding
+- [x] Add CUDA support for video processing operations
+- [x] Implement TensorRT integration for accelerated inference
+- [x] Create CUDA-optimized detection algorithms
+- [ ] Add multi-GPU support for load balancing
+
+#### 9.3 AMD GPU Acceleration ⬜
+
+- [ ] Integrate AMD AMF for hardware-accelerated encoding
+- [ ] Implement AMD VCE/VCN for hardware-accelerated decoding
+- [ ] Add ROCm support for video processing operations
+- [ ] Implement MIGraphX integration for accelerated inference
+- [ ] Create OpenCL-optimized detection algorithms
+- [ ] Add multi-GPU support for load balancing
+
+#### 9.4 Intel GPU Acceleration ⏳
+
+- [x] Integrate Intel Quick Sync Video for hardware-accelerated encoding
+- [x] Implement Intel QSV for hardware-accelerated decoding
+- [x] Add oneAPI support for video processing operations
+- [x] Implement OpenVINO integration for accelerated inference
+- [x] Create oneAPI-optimized detection algorithms
+- [ ] Add multi-device support for integrated and discrete GPUs
+
+#### 9.5 Mobile and Embedded Acceleration ⬜
+
+- [ ] Implement Google Edge TPU support for accelerated inference
+- [ ] Add Rockchip NPU integration for embedded devices
+- [ ] Integrate Qualcomm Hexagon DSP support
+- [ ] Implement Arm Mali GPU acceleration
+- [ ] Add WebNN support for browser-based acceleration
+- [ ] Create adaptive acceleration profiles for different devices
+
+#### 9.6 Cross-Platform Optimization ⏳
+
+- [x] Implement dynamic hardware selection based on workload
+- [x] Create unified benchmarking suite for comparing acceleration methods
+- [ ] Add load balancing across heterogeneous hardware
+- [x] Implement power-aware acceleration switching
+- [x] Create hardware-specific parameter tuning
+- [x] Add automatic fallback for algorithm selection
 
 ## Detailed Implementation Notes
 
@@ -665,6 +721,36 @@ Key features implemented:
 - Administrator controls for extension approval and monitoring
 - Detailed logging and audit trails for security purposes
 
+### Hardware Acceleration Framework
+
+The Hardware Acceleration Framework implementation now includes:
+- **Acceleration Abstraction Layer (completed)**: Unified interface for hardware acceleration across different platforms (NVIDIA, AMD, Intel)
+- **Hardware Detection System (completed)**: Automatic discovery and capability detection for available acceleration hardware
+- **Acceleration Selection Service (completed)**: Intelligent selection of appropriate hardware based on workload and requirements
+- **Cross-Platform Optimization (in progress)**: Performance tuning and parameter optimization for different acceleration methods
+- **Hardware Monitoring System (completed)**: Real-time monitoring of hardware utilization and performance metrics
+- **Fallback Mechanism (completed)**: Automatic fallback to alternative acceleration methods or software-based processing
+
+```
+Video Processing Task → Acceleration Manager → Hardware Selector → Appropriate Hardware API
+         ↓                      ↓                     ↓                       ↓
+  Task Classification     Capability Check     Performance History    Hardware-Specific Code
+         ↓                      ↓                     ↓                       ↓
+   Parameter Tuning       Resource Allocation     Power Management       Fallback Handling
+```
+
+Implemented acceleration platforms:
+- NVIDIA GPU acceleration via CUDA, NVENC, NVDEC, and TensorRT
+- Intel GPU acceleration via oneAPI, Quick Sync Video, and OpenVINO
+
+Remaining acceleration platforms to implement:
+- AMD GPU acceleration via ROCm, AMF/VCE, and MIGraphX
+- Google Edge TPU acceleration for embedded systems
+- Rockchip NPU acceleration for ARM-based systems
+- ARM Mali GPU acceleration
+- Qualcomm Hexagon DSP acceleration
+- WebNN for browser-based acceleration
+
 ### Protocol Abstraction Layer
 
 Core components implemented:
@@ -691,6 +777,8 @@ Core components implemented:
 | Week 8 | Protocol Extensions 1 | WebRTC implementation complete, Protocol Abstraction Layer | ✅ Complete |
 | Week 9 | Protocol Extensions 2 | MJPEG and ONVIF implementation | ✅ Complete |
 | Week 10 | Protocol Extensions 3 | HLS enhancements ✅, Third-party API ✅, Proprietary camera API support ⏳ | ⏳ In Progress |
+| Week 11 | Hardware Acceleration 1 | Acceleration framework ✅, NVIDIA ✅ and Intel ✅ support | ⏳ In Progress |
+| Week 12 | Hardware Acceleration 2 | AMD, Mobile NPUs, Cross-platform optimization | ⬜ Planned |
 
 ## Future Enhancements
 
@@ -713,7 +801,7 @@ Core components implemented:
 3. **Advanced Features**
    - Multi-server clustering
    - Edge computing support
-   - Hardware acceleration
+   - Hardware acceleration ⏳
    - Advanced analytics dashboard ✅
    - GIS/mapping integration
    - Custom detection model training
