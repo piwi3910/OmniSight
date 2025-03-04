@@ -263,7 +263,7 @@ This document outlines the implementation plan for completing the OmniSight vide
 - [ ] Implement ONVIF profile support (S, T, G)
 - [ ] Develop ONVIF metadata extraction
 
-#### 6.3 WebRTC Implementation ⏳
+#### 6.3 WebRTC Implementation ✅
 
 - [x] Define WebRTC protocol interface and types
 - [x] Implement WebRTC protocol in camera protocol abstraction layer
@@ -533,8 +533,9 @@ Core components implemented:
 | Week 5 | Frontend Completion | Event browser, Settings, Multi-camera support | ✅ Complete |
 | Week 6 | Testing & Optimization | Performance improvements, Bug fixes | ✅ Complete |
 | Week 7 | Release Preparation | Documentation, Final testing, Release package | ✅ Complete |
-| Week 8 | Protocol Extensions 1 | WebRTC core implementation, Protocol Abstraction Layer, MJPEG and ONVIF start | ⏳ In Progress |
-| Week 9 | Protocol Extensions 2 | WebRTC, HLS, and proprietary API support | ⬜ Planned |
+| Week 8 | Protocol Extensions 1 | WebRTC implementation complete, Protocol Abstraction Layer | ✅ Complete |
+| Week 9 | Protocol Extensions 2 | MJPEG and ONVIF implementation, HLS enhancements | ⏳ In Progress |
+| Week 10 | Protocol Extensions 3 | Proprietary camera API support, final integration | ⬜ Planned |
 
 ## Future Enhancements
 
