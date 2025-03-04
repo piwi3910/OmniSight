@@ -14,6 +14,16 @@ import {
   recordingProxy,
   objectDetectionProxy
 } from '../middleware/proxy';
+import {
+  registerExtension,
+  getExtension,
+  listExtensions,
+  updateExtension,
+  deleteExtension,
+  regenerateCredentials,
+  authenticateExtension
+} from '../controllers/extensionController';
+import { authenticateExtensionApi, authorizeExtension } from '../middleware/extensionAuth';
 import config from '../config/config';
 
 const router = express.Router();
@@ -71,6 +81,38 @@ router.use('/segments/storage', authenticate, endpointLimiter, recordingProxy); 
 
 // Object Detection Service routes
 router.use('/detection', authenticate, endpointLimiter, objectDetectionProxy);
+
+// Extension management - For administrators only
+router.post('/extensions', authenticate, authorize(['admin']), endpointLimiter, registerExtension);
+router.get('/extensions', authenticate, authorize(['admin']), endpointLimiter, listExtensions);
+router.get('/extensions/:extensionId', authenticate, authorize(['admin']), endpointLimiter, getExtension);
+router.put('/extensions/:extensionId', authenticate, authorize(['admin']), endpointLimiter, updateExtension);
+router.delete('/extensions/:extensionId', authenticate, authorize(['admin']), endpointLimiter, deleteExtension);
+router.post('/extensions/:extensionId/regenerate', authenticate, authorize(['admin']), endpointLimiter, regenerateCredentials);
+
+// Extension API authentication - For extensions to authenticate
+router.post('/extension-auth', authLimiter, authenticateExtension);
+
+// Extension API endpoints - Protected by extension authentication
+// Camera access
+router.get('/ext/cameras', authenticateExtensionApi, authorizeExtension(['read:cameras']), metadataEventsProxy);
+router.get('/ext/cameras/:cameraId', authenticateExtensionApi, authorizeExtension(['read:cameras']), metadataEventsProxy);
+router.post('/ext/cameras', authenticateExtensionApi, authorizeExtension(['write:cameras']), metadataEventsProxy);
+router.put('/ext/cameras/:cameraId', authenticateExtensionApi, authorizeExtension(['write:cameras']), metadataEventsProxy);
+
+// Event access
+router.get('/ext/events', authenticateExtensionApi, authorizeExtension(['read:events']), metadataEventsProxy);
+router.get('/ext/events/:eventId', authenticateExtensionApi, authorizeExtension(['read:events']), metadataEventsProxy);
+router.post('/ext/events', authenticateExtensionApi, authorizeExtension(['write:events']), metadataEventsProxy);
+
+// Recording access
+router.get('/ext/recordings', authenticateExtensionApi, authorizeExtension(['read:recordings']), metadataEventsProxy);
+router.get('/ext/recordings/:recordingId', authenticateExtensionApi, authorizeExtension(['read:recordings']), metadataEventsProxy);
+router.get('/ext/recordings/:recordingId/segments', authenticateExtensionApi, authorizeExtension(['read:recordings']), metadataEventsProxy);
+
+// Detection access
+router.get('/ext/detections', authenticateExtensionApi, authorizeExtension(['read:detection']), objectDetectionProxy);
+router.post('/ext/detections', authenticateExtensionApi, authorizeExtension(['read:detection']), objectDetectionProxy);
 
 // Admin-only routes
 router.use('/admin', authenticate, authorize(['admin']), endpointLimiter, (req, res, next) => {

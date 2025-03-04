@@ -10,6 +10,7 @@ import logger from './utils/logger';
 import { initializeWebSocketServer } from './middleware/websocketProxy';
 import { errorHandler } from '@omnisight/shared';
 import { initializeHealthCheck, createServiceHealthMiddleware } from './utils/healthCheck';
+import { initializeWebhookProcessor } from './utils/webhookSender';
 
 // Create Express application
 const app = express();
@@ -28,6 +29,9 @@ const io = new SocketIOServer(server, {
 
 // Initialize Socket.IO for WebSocket proxy
 initializeWebSocketServer(io);
+
+// Initialize webhook processor for third-party extensions
+initializeWebhookProcessor();
 
 // Middleware
 app.use(helmet()); // Security headers
