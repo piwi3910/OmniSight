@@ -1,824 +1,1204 @@
-import { Cam, Discovery } from 'onvif';
-import { EventEmitter } from 'events';
-import * as http from 'http';
-import * as fs from 'fs';
-import * as path from 'path';
-import axios from 'axios';
-import {
-  AbstractCameraProtocol
-} from '../AbstractCameraProtocol';
-import {
-  CameraConfig,
-  CameraCapabilities,
-  CameraInfo,
-  ConnectionStatus,
-  PtzMovement,
-  StreamOptions,
-  StreamProfile,
-  CameraEvent
+/**
+ * ONVIF Protocol Implementation
+ * 
+ * Implements the ONVIF (Open Network Video Interface Forum) protocol for the OmniSight system.
+ * ONVIF is a global standard for IP-based security products that provides a common interface
+ * for devices from different manufacturers.
+ */
+
+import { AbstractCameraProtocol } from '../AbstractCameraProtocol';
+import { 
+  CameraCapabilities, 
+  CameraConfig, 
+  CameraEvent, 
+  CameraInfo, 
+  ConnectionStatus, 
+  PtzMovement, 
+  StreamOptions, 
+  StreamProfile 
 } from '../interfaces/ICameraProtocol';
+// Import the onvif package (already in package.json)
+// Use require instead of import to bypass TypeScript typechecking
+const onvif = require('onvif');
+import { EventEmitter } from 'events';
+import { v4 as uuidv4 } from 'uuid';
 
-/**
- * Type for ONVIF Camera instance
- */
-type ONVIFCam = any; // The ONVIF library doesn't provide proper TypeScript definitions
-
-/**
- * ONVIF-specific presets map
- */
-interface PresetMap {
-  [presetToken: string]: string; // Token -> Name
+// Define ONVIF device class since TypeScript definitions might be missing
+interface OnvifDevice {
+  init(callback: (err: Error | null, info?: any) => void): void;
+  getDeviceInformation(callback: (err: Error | null, info: any) => void): void;
+  services: {
+    device?: any;
+    media?: any;
+    ptz?: any;
+    events?: any;
+    analytics?: any;
+    imaging?: any;
+  };
+  deviceInformation?: any;
 }
 
 /**
- * ONVIF protocol implementation
- * 
- * This class implements the ICameraProtocol interface for ONVIF-compatible cameras.
- * ONVIF is a global standard that enables interoperability between IP-based security products
- * regardless of manufacturer.
+ * ONVIF protocol events
+ */
+export enum ONVIFEvent {
+  DEVICE_CONNECTED = 'onvif:device_connected',
+  DEVICE_DISCONNECTED = 'onvif:device_disconnected',
+  PTZ_MOVED = 'onvif:ptz_moved',
+  PRESET_SAVED = 'onvif:preset_saved',
+  PRESET_RECALLED = 'onvif:preset_recalled',
+  STREAM_STARTED = 'onvif:stream_started',
+  STREAM_STOPPED = 'onvif:stream_stopped',
+  PROFILE_CHANGED = 'onvif:profile_changed',
+  EVENT_RECEIVED = 'onvif:event_received',
+  ERROR = 'onvif:error'
+}
+
+/**
+ * ONVIF device information
+ */
+export interface ONVIFDeviceInfo {
+  manufacturer: string;
+  model: string;
+  firmwareVersion: string;
+  serialNumber: string;
+  hardwareId: string;
+  scopes: string[];
+  supportedServices: string[];
+}
+
+/**
+ * ONVIF PTZ status
+ */
+export interface ONVIFPtzStatus {
+  position: {
+    x: number;
+    y: number;
+    zoom: number;
+  };
+  moveStatus: {
+    panTilt: 'IDLE' | 'MOVING' | 'UNKNOWN';
+    zoom: 'IDLE' | 'MOVING' | 'UNKNOWN';
+  };
+  error: string | null;
+  utcDateTime: Date;
+}
+
+/**
+ * ONVIF preset
+ */
+export interface ONVIFPreset {
+  token: string;
+  name: string;
+  position?: {
+    x: number;
+    y: number;
+    zoom: number;
+  };
+}
+
+/**
+ * ONVIF protocol statistics
+ */
+export interface ONVIFStats {
+  connected: boolean;
+  connectionTime?: Date;
+  lastActivity?: Date;
+  activeStreams: number;
+  activeEvents: number;
+  ptzMoveCount: number;
+  presetCount: number;
+  lastError?: string;
+}
+
+/**
+ * ONVIF protocol implementation for the OmniSight system
  */
 export class ONVIFProtocol extends AbstractCameraProtocol {
-  /**
-   * Protocol identifier
-   */
-  public readonly protocolId: string = 'onvif';
+  // Protocol identifier
+  readonly protocolId: string = 'onvif';
   
-  /**
-   * Protocol name
-   */
-  public readonly protocolName: string = 'ONVIF';
+  // Protocol name
+  readonly protocolName: string = 'ONVIF';
   
-  /**
-   * Protocol capabilities (will be updated after connection)
-   */
-  public readonly capabilities: CameraCapabilities = {
+  // Camera capabilities - will be updated after connection
+  readonly capabilities: CameraCapabilities = {
     ptz: false,
     presets: false,
-    digitalPtz: true,
+    digitalPtz: false,
     motionDetection: false,
     audio: false,
     twoWayAudio: false,
-    encodings: ['h264', 'h265', 'mjpeg'],
+    encodings: [],
     authMethods: ['digest', 'wsse'],
     localRecording: false,
-    events: true,
-    protocolSpecific: {
-      discoverable: true,
-      onvifProfiles: []
-    }
+    events: false,
+    protocolSpecific: {}
   };
   
-  /**
-   * ONVIF camera instance
-   */
-  private cam: ONVIFCam | null = null;
+  // ONVIF device reference
+  private device: OnvifDevice | null = null;
+  
+  // ONVIF services
+  private services: {
+    deviceService?: any;
+    mediaService?: any;
+    ptzService?: any;
+    eventService?: any;
+    analyticsService?: any;
+    imagingService?: any;
+  } = {};
+  
+  // ONVIF profiles
+  private profiles: any[] = [];
+  
+  // ONVIF presets
+  private presets: ONVIFPreset[] = [];
+  
+  // ONVIF event subscriptions (separate from AbstractCameraProtocol's eventSubscriptions)
+  protected onvifEventSubscriptions: Map<string, any> = new Map();
+  
+  // Event emitter for internal events
+  private eventEmitter = new EventEmitter();
+  
+  // Active streams
+  private streamUrls: Map<string, { url: string, profile: any }> = new Map();
+  
+  // Statistics
+  private stats: ONVIFStats = {
+    connected: false,
+    activeStreams: 0,
+    activeEvents: 0,
+    ptzMoveCount: 0,
+    presetCount: 0
+  };
+  
+  // Logger
+  private logger = {
+    debug: (message: string) => console.debug(`[ONVIF] ${message}`),
+    info: (message: string) => console.info(`[ONVIF] ${message}`),
+    warn: (message: string) => console.warn(`[ONVIF] ${message}`),
+    error: (message: string) => console.error(`[ONVIF] ${message}`)
+  };
+  
+  constructor() {
+    super();
+    
+    // Set up event handlers for internal events
+    this.setupEventHandlers();
+  }
   
   /**
-   * ONVIF stream URI cache
-   */
-  private streamUriCache: Map<string, string> = new Map();
-  
-  /**
-   * ONVIF profiles cache
-   */
-  private profilesCache: any[] = [];
-  
-  /**
-   * ONVIF presets cache
-   */
-  private presetsCache: PresetMap = {};
-  
-  /**
-   * ONVIF default profile token
-   */
-  private defaultProfileToken: string | null = null;
-  
-  /**
-   * Camera info cache
-   */
-  private cameraInfoCache: CameraInfo | null = null;
-  
-  /**
-   * Event subscription server
-   */
-  private eventServer: http.Server | null = null;
-  
-  /**
-   * Event emitter for ONVIF events
-   */
-  private eventEmitter: EventEmitter = new EventEmitter();
-  
-  /**
-   * Active streams map
-   */
-  protected activeStreams: Map<string, {
-    uri: string;
-    profileToken: string;
-    options?: StreamOptions;
-  }> = new Map();
-  
-  /**
-   * Connect to ONVIF camera
+   * Connect to the camera
    * 
    * @param config Camera configuration
+   * @returns Promise that resolves to true when connected
    */
   protected async performConnect(config: CameraConfig): Promise<boolean> {
-    return new Promise<boolean>((resolve, reject) => {
-      try {
-        // Create ONVIF camera instance
-        const camOptions = {
-          hostname: config.host,
-          port: config.port || 80,
-          username: config.username,
-          password: config.password,
-          timeout: config.timeout || 10000
-        };
-        
-        // Create camera instance
-        this.cam = new Cam(camOptions, async (err: Error | null) => {
-          if (err) {
-            console.error('ONVIF connection error:', err);
-            resolve(false);
+    try {
+      // Create ONVIF device
+      // Create a new ONVIF device instance
+      this.device = await new Promise<OnvifDevice>((resolve, reject) => {
+        try {
+          const Cam = onvif.Cam;
+          
+          if (!Cam) {
+            reject(new Error('ONVIF Camera class not found in onvif package'));
             return;
           }
           
-          try {
-            // Get camera capabilities
-            await this.updateCapabilities();
-            
-            // Get camera profiles
-            await this.getProfiles();
-            
-            // Get camera presets if PTZ capable
-            if (this.capabilities.ptz) {
-              await this.getPresets();
+          // Using callback-style initialization that the onvif library expects
+          new Cam({
+            hostname: config.host,
+            port: config.port,
+            username: config.username,
+            password: config.password,
+            timeout: config.timeout || 10000
+          }, (err: Error | null, cam: any) => {
+            if (err) {
+              reject(err);
+              return;
             }
             
-            resolve(true);
-          } catch (error) {
-            console.error('ONVIF initialization error:', error);
-            resolve(false);
-          }
-        });
-      } catch (error) {
-        console.error('ONVIF connection error:', error);
-        resolve(false);
-      }
-    });
-  }
-  
-  /**
-   * Update camera capabilities
-   */
-  private async updateCapabilities(): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
-      if (!this.cam) {
-        reject(new Error('Camera not connected'));
-        return;
-      }
-      
-      this.cam.getCapabilities((err: Error | null, capabilities: any) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        
-        // Update capabilities based on ONVIF response
-        const hasPtz = !!(capabilities.PTZ && capabilities.PTZ.XAddr);
-        const hasEvents = !!(capabilities.Events && capabilities.Events.XAddr);
-        const hasAudio = !!(capabilities.Media && capabilities.Media.XAddr && 
-                           capabilities.Media.extension && 
-                           capabilities.Media.extension.AudioOutputs);
-        
-        // Update capabilities
-        (this.capabilities as any).ptz = hasPtz;
-        (this.capabilities as any).presets = hasPtz;
-        (this.capabilities as any).events = hasEvents;
-        (this.capabilities as any).audio = hasAudio;
-        (this.capabilities as any).protocolSpecific = {
-          ...(this.capabilities.protocolSpecific || {}),
-          capabilities,
-          hasPtz,
-          hasEvents,
-          hasAudio
-        };
-        
-        resolve();
-      });
-    });
-  }
-  
-  /**
-   * Get camera profiles
-   */
-  private async getProfiles(): Promise<any[]> {
-    return new Promise<any[]>((resolve, reject) => {
-      if (!this.cam) {
-        reject(new Error('Camera not connected'));
-        return;
-      }
-      
-      this.cam.getProfiles((err: Error | null, profiles: any[]) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        
-        this.profilesCache = profiles;
-        
-        // Update protocol specific capabilities
-        (this.capabilities.protocolSpecific as any).onvifProfiles = 
-          profiles.map(p => ({ token: p.$.token, name: p.name }));
-        
-        // Set default profile (first one)
-        if (profiles.length > 0) {
-          this.defaultProfileToken = profiles[0].$.token;
-        }
-        
-        resolve(profiles);
-      });
-    });
-  }
-  
-  /**
-   * Get camera presets
-   */
-  private async getPresets(): Promise<PresetMap> {
-    return new Promise<PresetMap>((resolve, reject) => {
-      if (!this.cam || !this.defaultProfileToken) {
-        reject(new Error('Camera not connected or no profile available'));
-        return;
-      }
-      
-      this.cam.getPresets({ profileToken: this.defaultProfileToken }, (err: Error | null, presets: any) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        
-        const presetMap: PresetMap = {};
-        
-        // Extract presets
-        if (presets && typeof presets === 'object') {
-          Object.keys(presets).forEach(name => {
-            const token = presets[name];
-            presetMap[token] = name;
+            // Successfully created and connected to the camera
+            resolve(cam as OnvifDevice);
           });
+        } catch (error) {
+          reject(error);
         }
-        
-        this.presetsCache = presetMap;
-        resolve(presetMap);
       });
-    });
-  }
-  
-  /**
-   * Get stream URI for profile
-   * 
-   * @param profileToken Profile token
-   * @param protocol Stream protocol (RTSP, HTTP, UDP)
-   */
-  private async getStreamUri(profileToken: string, protocol: 'RTSP' | 'HTTP' | 'UDP' = 'RTSP'): Promise<string> {
-    // Check cache first
-    const cacheKey = `${profileToken}:${protocol}`;
-    if (this.streamUriCache.has(cacheKey)) {
-      return this.streamUriCache.get(cacheKey)!;
-    }
-    
-    return new Promise<string>((resolve, reject) => {
-      if (!this.cam) {
-        reject(new Error('Camera not connected'));
-        return;
+      
+      // Get device information and capabilities
+      await this.getDeviceInformation();
+      
+      // Get available services
+      await this.getServices();
+      
+      // Get media profiles
+      await this.getMediaProfiles();
+      
+      // Get PTZ capabilities and presets if available
+      if (this.services.ptzService) {
+        this.capabilities.ptz = true;
+        this.capabilities.presets = true;
+        await this.getPresets();
       }
       
-      this.cam.getStreamUri({
-        protocol,
-        profileToken
-      }, (err: Error | null, stream: any) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        
-        if (!stream || !stream.uri) {
-          reject(new Error('No stream URI found'));
-          return;
-        }
-        
-        // Cache the URI
-        this.streamUriCache.set(cacheKey, stream.uri);
-        
-        resolve(stream.uri);
+      // Get event capabilities if available
+      if (this.services.eventService) {
+        this.capabilities.events = true;
+      }
+      
+      // Update stats
+      this.stats.connected = true;
+      this.stats.connectionTime = new Date();
+      this.stats.lastActivity = new Date();
+      
+      // Trigger device connected event
+      this.eventEmitter.emit(ONVIFEvent.DEVICE_CONNECTED, {
+        deviceInfo: await this.getCameraInfo(),
+        capabilities: this.capabilities
       });
-    });
+      
+      return true;
+    } catch (error) {
+      this.logger.error(`Failed to connect to ONVIF device: ${error instanceof Error ? error.message : String(error)}`);
+      this.stats.lastError = error instanceof Error ? error.message : String(error);
+      return false;
+    }
   }
   
   /**
-   * Disconnect from camera
+   * Disconnect from the camera
    */
   protected async performDisconnect(): Promise<void> {
-    // Stop all active streams
-    this.activeStreams.clear();
-    
-    // Cleanup event subscription
-    if (this.eventServer) {
-      this.eventServer.close();
-      this.eventServer = null;
+    // Disconnect from any active event subscriptions
+    for (const [subscriptionId, subscription] of this.onvifEventSubscriptions.entries()) {
+      try {
+        await this.performUnsubscribeFromEvents(subscriptionId);
+      } catch (error) {
+        this.logger.warn(`Error unsubscribing from events: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
     
-    // Clean up
-    this.cam = null;
-    this.streamUriCache.clear();
-    this.profilesCache = [];
-    this.presetsCache = {};
-    this.defaultProfileToken = null;
+    // Update stats
+    this.stats.connected = false;
+    
+    // Trigger device disconnected event
+    this.eventEmitter.emit(ONVIFEvent.DEVICE_DISCONNECTED, {
+      timestamp: new Date()
+    });
+    
+    // Clear device and services
+    this.device = null;
+    this.services = {};
+    this.profiles = [];
+    this.presets = [];
+    this.streamUrls.clear();
   }
   
   /**
-   * Start camera stream
-   * 
-   * @param options Stream options
+   * Get a frame from the camera
    */
-  protected async performStartStream(options?: StreamOptions): Promise<string> {
-    if (!this.cam) {
-      throw new Error('Camera not connected');
+  async getFrame(): Promise<Uint8Array> {
+    if (this.connectionStatus !== ConnectionStatus.CONNECTED || !this.device) {
+      throw new Error('Cannot get frame: Camera is not connected');
     }
     
-    // Determine profile token to use
-    let profileToken = this.defaultProfileToken;
-    
-    // If profile specified in options, use that
-    if (options?.profile) {
-      profileToken = options.profile;
-    } else if (options?.resolution && this.profilesCache.length > 0) {
-      // Try to find a profile matching desired resolution
-      const targetWidth = options.resolution.width;
-      const targetHeight = options.resolution.height;
-      
-      // Find closest match by resolution
-      let bestMatch = this.profilesCache[0];
-      let bestDiff = Number.MAX_SAFE_INTEGER;
-      
-      for (const profile of this.profilesCache) {
-        if (profile.videoEncoderConfiguration && 
-            profile.videoEncoderConfiguration.resolution) {
-          const width = profile.videoEncoderConfiguration.resolution.width;
-          const height = profile.videoEncoderConfiguration.resolution.height;
-          
-          const diff = Math.abs(width - targetWidth) + Math.abs(height - targetHeight);
-          if (diff < bestDiff) {
-            bestDiff = diff;
-            bestMatch = profile;
-          }
-        }
+    try {
+      // Get snapshot URI from the first profile
+      if (!this.profiles.length) {
+        throw new Error('No media profiles available');
       }
       
-      profileToken = bestMatch.$.token;
-    }
-    
-    if (!profileToken) {
-      throw new Error('No suitable profile found');
-    }
-    
-    // Determine stream protocol (RTSP is preferred)
-    const protocol = (options?.parameters?.protocol as any) || 'RTSP';
-    
-    // Get stream URI
-    const uri = await this.getStreamUri(profileToken, protocol);
-    
-    // Generate stream ID
-    const streamId = `stream-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-    
-    // Store stream info
-    this.activeStreams.set(streamId, {
-      uri,
-      profileToken,
-      options
-    });
-    
-    return streamId;
-  }
-  
-  /**
-   * Stop camera stream
-   * 
-   * @param streamId Stream identifier
-   */
-  protected async performStopStream(streamId: string): Promise<void> {
-    // Just remove it from active streams
-    this.activeStreams.delete(streamId);
-  }
-  
-  /**
-   * Get frame from camera (snapshot)
-   */
-  public async getFrame(): Promise<Uint8Array> {
-    if (!this.cam || !this.defaultProfileToken) {
-      throw new Error('Camera not connected or no profile available');
-    }
-    
-    return new Promise<Uint8Array>((resolve, reject) => {
-      this.cam.getSnapshot({ profileToken: this.defaultProfileToken }, (err: Error | null, res: any) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        
-        if (!res || !res.uri) {
-          reject(new Error('No snapshot URI available'));
-          return;
-        }
-        
-        // Get snapshot using Axios
-        axios({
-          method: 'GET',
-          url: res.uri,
-          responseType: 'arraybuffer',
-          auth: this.config ? {
-            username: this.config.username || '',
-            password: this.config.password || ''
-          } : undefined
-        })
-          .then(response => {
-            resolve(new Uint8Array(response.data));
-          })
-          .catch(error => {
-            reject(error);
-          });
+      const profile = this.profiles[0];
+      const snapshotUri = await new Promise<string>((resolve, reject) => {
+        this.services.mediaService.getSnapshotUri({
+          ProfileToken: profile.token
+        }, (err: Error | null, result: any) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve(result.Uri);
+        });
       });
-    });
+      
+      // Get snapshot image using fetch
+      const response = await fetch(snapshotUri, {
+        headers: {
+          'Authorization': this.createBasicAuthHeader()
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to get snapshot: ${response.status} ${response.statusText}`);
+      }
+      
+      // Convert response to buffer
+      const buffer = await response.arrayBuffer();
+      return new Uint8Array(buffer);
+    } catch (error) {
+      this.logger.error(`Failed to get frame: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+  }
+  
+  /**
+   * Create a basic auth header
+   */
+  private createBasicAuthHeader(): string {
+    if (!this.config?.username || !this.config?.password) {
+      return '';
+    }
+    
+    const auth = `${this.config.username}:${this.config.password}`;
+    return `Basic ${Buffer.from(auth).toString('base64')}`;
   }
   
   /**
    * Get camera information
    */
-  public async getCameraInfo(): Promise<CameraInfo> {
-    if (this.cameraInfoCache) {
-      return this.cameraInfoCache;
+  async getCameraInfo(): Promise<CameraInfo> {
+    if (!this.device) {
+      throw new Error('Camera is not connected');
     }
     
-    if (!this.cam) {
-      throw new Error('Camera not connected');
+    // Get device information if not already cached
+    if (!this.device.deviceInformation) {
+      await this.getDeviceInformation();
     }
     
-    return new Promise<CameraInfo>((resolve, reject) => {
-      this.cam.getDeviceInformation((err: Error | null, info: any) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        
-        const cameraInfo: CameraInfo = {
-          manufacturer: info.manufacturer || 'Unknown',
-          model: info.model || 'ONVIF Camera',
-          firmwareVersion: info.firmwareVersion || 'Unknown',
-          serialNumber: info.serialNumber,
-          hardwareId: info.hardwareId,
-          additionalInfo: {
-            protocol: this.protocolName
-          }
-        };
-        
-        this.cameraInfoCache = cameraInfo;
-        resolve(cameraInfo);
-      });
-    });
+    return {
+      manufacturer: this.device.deviceInformation.manufacturer || 'Unknown',
+      model: this.device.deviceInformation.model || 'Unknown',
+      firmwareVersion: this.device.deviceInformation.firmwareVersion || 'Unknown',
+      serialNumber: this.device.deviceInformation.serialNumber || undefined,
+      hardwareId: this.device.deviceInformation.hardwareId || undefined,
+      additionalInfo: {
+        protocol: 'ONVIF',
+        supportedServices: Object.keys(this.services)
+      }
+    };
   }
   
   /**
    * Get available stream profiles
    */
-  public async getAvailableStreams(): Promise<StreamProfile[]> {
-    if (!this.cam) {
-      throw new Error('Camera not connected');
+  async getAvailableStreams(): Promise<StreamProfile[]> {
+    if (!this.device || !this.services.mediaService) {
+      throw new Error('Camera is not connected or media service is not available');
     }
     
-    // Use cache if available
-    if (this.profilesCache.length > 0) {
-      return this.mapProfilesToStreamProfiles(this.profilesCache);
+    // Return cached profiles if available
+    if (this.profiles.length > 0) {
+      return this.profiles.map(profile => this.convertProfileToStreamProfile(profile));
     }
     
     // Otherwise, get profiles
-    const profiles = await this.getProfiles();
-    return this.mapProfilesToStreamProfiles(profiles);
+    await this.getMediaProfiles();
+    
+    return this.profiles.map(profile => this.convertProfileToStreamProfile(profile));
   }
   
   /**
-   * Map ONVIF profiles to StreamProfile interface
-   * 
-   * @param profiles ONVIF profiles
+   * Convert ONVIF profile to stream profile
    */
-  private mapProfilesToStreamProfiles(profiles: any[]): StreamProfile[] {
-    return profiles.map(profile => {
-      const token = profile.$.token;
-      const name = profile.name || `Profile ${token}`;
-      let encoding = 'h264'; // Default
-      let width = 640; // Default
-      let height = 480; // Default
-      let frameRate = 30; // Default
-      let bitrate = 1000; // Default in kbps
-      
-      // Extract video encoder configuration
-      if (profile.videoEncoderConfiguration) {
-        const config = profile.videoEncoderConfiguration;
-        
-        // Get encoding
-        if (config.encoding) {
-          encoding = config.encoding.toLowerCase();
-        }
-        
-        // Get resolution
-        if (config.resolution) {
-          width = config.resolution.width;
-          height = config.resolution.height;
-        }
-        
-        // Get frame rate
-        if (config.rateControl && config.rateControl.frameRateLimit) {
-          frameRate = config.rateControl.frameRateLimit;
-        }
-        
-        // Get bitrate
-        if (config.rateControl && config.rateControl.bitrateLimit) {
-          bitrate = config.rateControl.bitrateLimit;
-        }
+  private convertProfileToStreamProfile(profile: any): StreamProfile {
+    // Extract video encoder configuration
+    const videoConfig = profile.videoEncoderConfiguration || {};
+    
+    return {
+      id: profile.token,
+      name: profile.name,
+      encoding: videoConfig.encoding || 'H264',
+      resolution: videoConfig.resolution ? {
+        width: videoConfig.resolution.width || 640,
+        height: videoConfig.resolution.height || 480
+      } : { width: 640, height: 480 },
+      frameRate: videoConfig.rateControl ? videoConfig.rateControl.frameRateLimit || 30 : 30,
+      bitrate: videoConfig.rateControl ? videoConfig.rateControl.bitrateLimit || undefined : undefined,
+      parameters: {
+        quality: videoConfig.quality || 0,
+        govLength: videoConfig.h264?.govLength || undefined,
+        profile: videoConfig.h264?.h264Profile || undefined
       }
-      
-      return {
-        id: token,
-        name,
-        encoding,
-        resolution: { width, height },
-        frameRate,
-        bitrate,
-        parameters: {
-          profileToken: token,
-          protocol: 'RTSP',
-          hasMetadata: !!profile.metadataConfiguration
-        }
-      };
-    });
+    };
   }
   
   /**
    * Get protocol-specific options
    */
-  public getProtocolOptions(): Record<string, any> {
+  getProtocolOptions(): Record<string, any> {
     return {
-      // ONVIF-specific options
-      defaultProfileToken: this.defaultProfileToken,
-      availableProfiles: this.capabilities.protocolSpecific?.onvifProfiles || [],
-      ptzCapabilities: this.capabilities.ptz,
-      eventCapabilities: this.capabilities.events
+      profiles: this.profiles.map(p => ({ token: p.token, name: p.name })),
+      presets: this.presets,
+      supportsPTZ: this.capabilities.ptz,
+      supportsEvents: this.capabilities.events,
+      stats: this.stats
     };
   }
   
   /**
    * Set protocol-specific options
-   * 
-   * @param options Protocol options
    */
-  public async setProtocolOptions(options: Record<string, any>): Promise<void> {
-    if (options.defaultProfileToken && 
-        this.profilesCache.some(p => p.$.token === options.defaultProfileToken)) {
-      this.defaultProfileToken = options.defaultProfileToken;
+  async setProtocolOptions(options: Record<string, any>): Promise<void> {
+    // No settable options for ONVIF protocol yet
+  }
+  
+  /**
+   * Start a stream
+   */
+  protected async performStartStream(options?: StreamOptions): Promise<string> {
+    if (!this.device || !this.services.mediaService) {
+      throw new Error('Camera is not connected or media service is not available');
+    }
+    
+    try {
+      // Find the appropriate profile
+      let profile: any;
+      if (options?.profile) {
+        // Find profile by ID/token
+        profile = this.profiles.find(p => p.token === options.profile);
+        if (!profile) {
+          throw new Error(`Profile not found: ${options.profile}`);
+        }
+      } else if (options?.resolution) {
+        // Find profile by resolution
+        profile = this.findProfileByResolution(options.resolution.width, options.resolution.height);
+        if (!profile) {
+          // Fall back to first profile
+          profile = this.profiles[0];
+        }
+      } else {
+        // Use first profile by default
+        profile = this.profiles[0];
+      }
+      
+      if (!profile) {
+        throw new Error('No suitable profile found');
+      }
+      
+      // Get stream URI
+      const streamUri = await new Promise<string>((resolve, reject) => {
+        this.services.mediaService.getStreamUri({
+          ProfileToken: profile.token,
+          Protocol: 'RTSP'
+        }, (err: Error | null, result: any) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve(result.Uri);
+        });
+      });
+      
+      // Generate stream ID
+      const streamId = `onvif-stream-${uuidv4()}`;
+      
+      // Store stream URL
+      this.streamUrls.set(streamId, { url: streamUri, profile });
+      
+      // Update stats
+      this.stats.activeStreams++;
+      this.stats.lastActivity = new Date();
+      
+      // Trigger stream started event
+      this.eventEmitter.emit(ONVIFEvent.STREAM_STARTED, {
+        streamId,
+        profileToken: profile.token,
+        streamUri
+      });
+      
+      return streamId;
+    } catch (error) {
+      this.logger.error(`Failed to start stream: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
     }
   }
   
   /**
-   * Perform camera movement
-   * 
-   * @param movement PTZ movement parameters
+   * Find profile by resolution
    */
-  protected async performMove(movement: PtzMovement): Promise<void> {
-    if (!this.cam || !this.defaultProfileToken) {
-      throw new Error('Camera not connected or no profile available');
+  private findProfileByResolution(width: number, height: number): any {
+    // Try to find exact match
+    let profile = this.profiles.find(p => {
+      const resolution = p.videoEncoderConfiguration?.resolution;
+      return resolution && resolution.width === width && resolution.height === height;
+    });
+    
+    if (profile) {
+      return profile;
     }
     
-    if (!this.capabilities.ptz) {
-      throw new Error('Camera does not support PTZ');
+    // Try to find closest match
+    const sortedProfiles = [...this.profiles].sort((a, b) => {
+      const resA = a.videoEncoderConfiguration?.resolution;
+      const resB = b.videoEncoderConfiguration?.resolution;
+      
+      if (!resA) return 1;
+      if (!resB) return -1;
+      
+      const diffA = Math.abs(resA.width - width) + Math.abs(resA.height - height);
+      const diffB = Math.abs(resB.width - width) + Math.abs(resB.height - height);
+      
+      return diffA - diffB;
+    });
+    
+    return sortedProfiles[0];
+  }
+  
+  /**
+   * Stop a stream
+   */
+  protected async performStopStream(streamId: string): Promise<void> {
+    // Check if stream exists
+    if (!this.streamUrls.has(streamId)) {
+      return;
     }
     
-    return new Promise<void>((resolve, reject) => {
-      // Translate our movement coordinates to ONVIF coordinates
-      const x = movement.pan || 0; // -1 to 1
-      const y = movement.tilt || 0; // -1 to 1
-      const z = movement.zoom || 0; // -1 to 1
-      
-      // Get profileToken
-      const profileToken = this.defaultProfileToken as string;
-      
-      // Determine if absolute or relative movement
-      if (movement.absolute) {
-        // Absolute move
-        this.cam.absoluteMove({
-          profileToken,
-          position: { x, y, zoom: z },
-          speed: { x: movement.speed || 1, y: movement.speed || 1, z: movement.speed || 1 }
-        }, (err: Error | null) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          resolve();
-        });
-      } else if (movement.continuous) {
-        // Continuous move
-        this.cam.continuousMove({
-          profileToken,
-          velocity: { x, y, zoom: z }
-        }, (err: Error | null) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          resolve();
-        });
-      } else {
-        // Relative move
-        this.cam.relativeMove({
-          profileToken,
-          translation: { x, y, zoom: z },
-          speed: { x: movement.speed || 1, y: movement.speed || 1, z: movement.speed || 1 }
-        }, (err: Error | null) => {
-          if (err) {
-            reject(err);
-            return;
-          }
-          resolve();
-        });
-      }
+    // Get stream info
+    const streamInfo = this.streamUrls.get(streamId);
+    
+    // Remove stream
+    this.streamUrls.delete(streamId);
+    
+    // Update stats
+    this.stats.activeStreams = this.streamUrls.size;
+    this.stats.lastActivity = new Date();
+    
+    // Trigger stream stopped event
+    this.eventEmitter.emit(ONVIFEvent.STREAM_STOPPED, {
+      streamId,
+      profileToken: streamInfo?.profile.token
     });
   }
   
   /**
-   * Go to preset position
-   * 
-   * @param presetId Preset identifier
+   * Move camera using PTZ controls
    */
-  protected async performGotoPreset(presetId: string): Promise<void> {
-    if (!this.cam || !this.defaultProfileToken) {
-      throw new Error('Camera not connected or no profile available');
+  protected async performMove(movement: PtzMovement): Promise<void> {
+    if (!this.device || !this.services.ptzService) {
+      throw new Error('Camera is not connected or PTZ service is not available');
     }
     
-    if (!this.capabilities.ptz) {
-      throw new Error('Camera does not support PTZ');
+    try {
+      // Find a profile with PTZ configuration
+      const ptzProfile = this.profiles.find(p => p.ptzConfiguration);
+      if (!ptzProfile) {
+        throw new Error('No PTZ configuration found in profiles');
+      }
+      
+      const ptzOptions: any = {
+        ProfileToken: ptzProfile.token,
+        Speed: {
+          PanTilt: { x: 0, y: 0 },
+          Zoom: { x: 0 }
+        }
+      };
+      
+      // Set speed
+      const speed = movement.speed !== undefined ? movement.speed : 1.0;
+      
+      // Set up movement parameters based on type
+      if (movement.continuous) {
+        // Continuous move
+        ptzOptions.Velocity = {
+          PanTilt: {
+            x: movement.pan !== undefined ? movement.pan * speed : 0,
+            y: movement.tilt !== undefined ? movement.tilt * speed : 0
+          },
+          Zoom: {
+            x: movement.zoom !== undefined ? movement.zoom * speed : 0
+          }
+        };
+        
+        // Perform continuous move
+        await new Promise<void>((resolve, reject) => {
+          this.services.ptzService.continuousMove(ptzOptions, (err: Error | null) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+            resolve();
+          });
+        });
+      } else if (movement.absolute) {
+        // Absolute move
+        ptzOptions.Position = {
+          PanTilt: {
+            x: movement.pan !== undefined ? movement.pan : 0,
+            y: movement.tilt !== undefined ? movement.tilt : 0
+          },
+          Zoom: {
+            x: movement.zoom !== undefined ? movement.zoom : 0
+          }
+        };
+        ptzOptions.Speed = {
+          PanTilt: {
+            x: speed,
+            y: speed
+          },
+          Zoom: {
+            x: speed
+          }
+        };
+        
+        // Perform absolute move
+        await new Promise<void>((resolve, reject) => {
+          this.services.ptzService.absoluteMove(ptzOptions, (err: Error | null) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+            resolve();
+          });
+        });
+      } else {
+        // Relative move
+        ptzOptions.Translation = {
+          PanTilt: {
+            x: movement.pan !== undefined ? movement.pan : 0,
+            y: movement.tilt !== undefined ? movement.tilt : 0
+          },
+          Zoom: {
+            x: movement.zoom !== undefined ? movement.zoom : 0
+          }
+        };
+        ptzOptions.Speed = {
+          PanTilt: {
+            x: speed,
+            y: speed
+          },
+          Zoom: {
+            x: speed
+          }
+        };
+        
+        // Perform relative move
+        await new Promise<void>((resolve, reject) => {
+          this.services.ptzService.relativeMove(ptzOptions, (err: Error | null) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+            resolve();
+          });
+        });
+      }
+      
+      // Update stats
+      this.stats.ptzMoveCount++;
+      this.stats.lastActivity = new Date();
+      
+      // Trigger PTZ moved event
+      this.eventEmitter.emit(ONVIFEvent.PTZ_MOVED, {
+        movement,
+        profileToken: ptzProfile.token
+      });
+    } catch (error) {
+      this.logger.error(`Failed to move camera: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+  }
+  
+  /**
+   * Go to a preset position
+   */
+  protected async performGotoPreset(presetId: string): Promise<void> {
+    if (!this.device || !this.services.ptzService) {
+      throw new Error('Camera is not connected or PTZ service is not available');
+    }
+    
+    try {
+      // Find a profile with PTZ configuration
+      const ptzProfile = this.profiles.find(p => p.ptzConfiguration);
+      if (!ptzProfile) {
+        throw new Error('No PTZ configuration found in profiles');
+      }
+      
+      // Verify preset exists
+      if (!this.presets.some(p => p.token === presetId)) {
+        throw new Error(`Preset not found: ${presetId}`);
+      }
+      
+      // Go to preset
+      await new Promise<void>((resolve, reject) => {
+        this.services.ptzService.gotoPreset({
+          ProfileToken: ptzProfile.token,
+          PresetToken: presetId
+        }, (err: Error | null) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve();
+        });
+      });
+      
+      // Update stats
+      this.stats.lastActivity = new Date();
+      
+      // Trigger preset recalled event
+      this.eventEmitter.emit(ONVIFEvent.PRESET_RECALLED, {
+        presetToken: presetId,
+        profileToken: ptzProfile.token
+      });
+    } catch (error) {
+      this.logger.error(`Failed to go to preset: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+  }
+  
+  /**
+   * Save current position as preset
+   */
+  protected async performSavePreset(presetName: string): Promise<string> {
+    if (!this.device || !this.services.ptzService) {
+      throw new Error('Camera is not connected or PTZ service is not available');
+    }
+    
+    try {
+      // Find a profile with PTZ configuration
+      const ptzProfile = this.profiles.find(p => p.ptzConfiguration);
+      if (!ptzProfile) {
+        throw new Error('No PTZ configuration found in profiles');
+      }
+      
+      // Save preset
+      const result = await new Promise<any>((resolve, reject) => {
+        this.services.ptzService.setPreset({
+          ProfileToken: ptzProfile.token,
+          PresetName: presetName
+        }, (err: Error | null, result: any) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve(result);
+        });
+      });
+      
+      const presetToken = result.PresetToken;
+      
+      // Update presets list
+      await this.getPresets();
+      
+      // Update stats
+      this.stats.presetCount = this.presets.length;
+      this.stats.lastActivity = new Date();
+      
+      // Trigger preset saved event
+      this.eventEmitter.emit(ONVIFEvent.PRESET_SAVED, {
+        presetToken,
+        presetName,
+        profileToken: ptzProfile.token
+      });
+      
+      return presetToken;
+    } catch (error) {
+      this.logger.error(`Failed to save preset: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+  }
+  
+  /**
+   * Test connection to camera
+   */
+  protected async performTestConnection(config: CameraConfig): Promise<boolean> {
+    try {
+      // Create and test a temporary ONVIF device
+      return new Promise<boolean>((resolve) => {
+        try {
+          const Cam = onvif.Cam;
+          
+          if (!Cam) {
+            resolve(false);
+            return;
+          }
+          
+          // Try to create and initialize the camera
+          new Cam({
+            hostname: config.host,
+            port: config.port,
+            username: config.username,
+            password: config.password,
+            timeout: 5000 // Short timeout for test
+          }, (err: Error | null, cam: any) => {
+            if (err) {
+              resolve(false);
+              return;
+            }
+            
+            // Try to get device information
+            cam.getDeviceInformation((infoErr: Error | null, info: any) => {
+              resolve(!infoErr && !!info);
+            });
+          });
+        } catch (error) {
+          resolve(false);
+        }
+      });
+    } catch (error) {
+      return false;
+    }
+  }
+  
+  /**
+   * Subscribe to camera events
+   */
+  protected async performSubscribeToEvents(eventTypes: string[]): Promise<string> {
+    if (!this.device || !this.services.eventService) {
+      throw new Error('Camera is not connected or event service is not available');
+    }
+    
+    try {
+      // Create a subscription
+      const result = await new Promise<any>((resolve, reject) => {
+        this.services.eventService.createPullPointSubscription((err: Error | null, result: any) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          resolve(result);
+        });
+      });
+      
+      // Generate subscription ID
+      const subscriptionId = `onvif-subscription-${uuidv4()}`;
+      
+      // Store subscription info
+      this.onvifEventSubscriptions.set(subscriptionId, {
+        reference: result.SubscriptionReference,
+        eventTypes,
+        lastPoll: new Date()
+      });
+      
+      // Start polling events
+      this.startEventPolling(subscriptionId);
+      
+      // Update stats
+      this.stats.activeEvents = this.onvifEventSubscriptions.size;
+      this.stats.lastActivity = new Date();
+      
+      return subscriptionId;
+    } catch (error) {
+      this.logger.error(`Failed to subscribe to events: ${error instanceof Error ? error.message : String(error)}`);
+      throw error;
+    }
+  }
+  
+  /**
+   * Start polling events for a subscription
+   */
+  private startEventPolling(subscriptionId: string): void {
+    const subscription = this.onvifEventSubscriptions.get(subscriptionId);
+    if (!subscription) {
+      return;
+    }
+    
+    // Set up polling interval
+    const pollInterval = 5000; // 5 seconds
+    
+    const poll = () => {
+      if (!this.device || !this.services.eventService) {
+        return;
+      }
+      
+      if (!this.onvifEventSubscriptions.has(subscriptionId)) {
+        return;
+      }
+      
+      // Poll for events
+      this.services.eventService.pullMessages({
+        Timeout: pollInterval / 1000,
+        MessageLimit: 100
+      }, (err: Error | null, result: any) => {
+        if (err) {
+          this.logger.error(`Event polling error: ${err.message}`);
+          return;
+        }
+        
+        // Process events
+        if (result && result.NotificationMessage) {
+          const messages = Array.isArray(result.NotificationMessage) 
+            ? result.NotificationMessage 
+            : [result.NotificationMessage];
+          
+          for (const message of messages) {
+            this.processEventMessage(subscriptionId, message);
+          }
+        }
+        
+        // Update last poll time
+        const sub = this.onvifEventSubscriptions.get(subscriptionId);
+        if (sub) {
+          sub.lastPoll = new Date();
+          this.onvifEventSubscriptions.set(subscriptionId, sub);
+        }
+        
+        // Schedule next poll
+        setTimeout(poll, pollInterval);
+      });
+    };
+    
+    // Start polling
+    poll();
+  }
+  
+  /**
+   * Process event message
+   */
+  private processEventMessage(subscriptionId: string, message: any): void {
+    const sub = this.onvifEventSubscriptions.get(subscriptionId);
+    if (!sub) {
+      return;
+    }
+    
+    try {
+      // Extract event data
+      const topic = message.Topic?._ || message.Topic;
+      const source = message.ProducerReference?.Address?._ || 'unknown';
+      const messageData = message.Message?.Message?.Data?.SimpleItem || [];
+      
+      // Convert data to key-value pairs
+      const data: Record<string, any> = {};
+      if (Array.isArray(messageData)) {
+        for (const item of messageData) {
+          if (item.$ && item.$.Name) {
+            data[item.$.Name] = item.$.Value;
+          }
+        }
+      } else if (messageData.$ && messageData.$.Name) {
+        data[messageData.$.Name] = messageData.$.Value;
+      }
+      
+      // Check if event type matches subscription
+      if (sub.eventTypes.length > 0) {
+        const eventType = topic.replace(/^tns:/, '');
+        if (!sub.eventTypes.some((t: string) => eventType.includes(t))) {
+          return;
+        }
+      }
+      
+      // Create camera event
+      const event: CameraEvent = {
+        type: topic.replace(/^tns:/, ''),
+        timestamp: new Date(),
+        source,
+        data
+      };
+      
+      // Dispatch event
+      this.dispatchEvent(event);
+      
+      // Emit internal event
+      this.eventEmitter.emit(ONVIFEvent.EVENT_RECEIVED, {
+        subscriptionId,
+        event
+      });
+    } catch (error) {
+      this.logger.error(`Error processing event: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  
+  /**
+   * Unsubscribe from camera events
+   */
+  protected async performUnsubscribeFromEvents(subscriptionId: string): Promise<void> {
+    const subscription = this.onvifEventSubscriptions.get(subscriptionId);
+    if (!subscription) {
+      return;
+    }
+    
+    try {
+      // Delete subscription
+      if (this.services.eventService) {
+        await new Promise<void>((resolve, reject) => {
+          this.services.eventService.unsubscribe(subscription.reference, (err: Error | null) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+            resolve();
+          });
+        });
+      }
+    } catch (error) {
+      this.logger.warn(`Error unsubscribing: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      // Remove subscription from map
+      this.onvifEventSubscriptions.delete(subscriptionId);
+      
+      // Update stats
+      this.stats.activeEvents = this.onvifEventSubscriptions.size;
+      this.stats.lastActivity = new Date();
+    }
+  }
+  
+  /**
+   * Get device information
+   */
+  private async getDeviceInformation(): Promise<void> {
+    if (!this.device) {
+      throw new Error('Device not initialized');
     }
     
     return new Promise<void>((resolve, reject) => {
-      this.cam.gotoPreset({
-        profileToken: this.defaultProfileToken,
-        presetToken: presetId
-      }, (err: Error | null) => {
+      this.device!.getDeviceInformation((err: Error | null, info: any) => {
         if (err) {
           reject(err);
           return;
         }
+        
+        // Store device information
+        this.device!.deviceInformation = info;
         resolve();
       });
     });
   }
   
   /**
-   * Save current position as preset
-   * 
-   * @param presetName Preset name
+   * Get available services
    */
-  protected async performSavePreset(presetName: string): Promise<string> {
-    if (!this.cam || !this.defaultProfileToken) {
-      throw new Error('Camera not connected or no profile available');
+  private async getServices(): Promise<void> {
+    if (!this.device) {
+      throw new Error('Device not initialized');
     }
     
-    if (!this.capabilities.ptz) {
-      throw new Error('Camera does not support PTZ');
+    // Get device service
+    this.services.deviceService = this.device.services.device;
+    
+    // Get media service
+    if (this.device.services.media) {
+      this.services.mediaService = this.device.services.media;
     }
     
-    return new Promise<string>((resolve, reject) => {
-      this.cam.setPreset({
-        profileToken: this.defaultProfileToken,
-        presetName
-      }, (err: Error | null, preset: any) => {
+    // Get PTZ service
+    if (this.device.services.ptz) {
+      this.services.ptzService = this.device.services.ptz;
+    }
+    
+    // Get event service
+    if (this.device.services.events) {
+      this.services.eventService = this.device.services.events;
+    }
+    
+    // Get analytics service
+    if (this.device.services.analytics) {
+      this.services.analyticsService = this.device.services.analytics;
+    }
+    
+    // Get imaging service
+    if (this.device.services.imaging) {
+      this.services.imagingService = this.device.services.imaging;
+    }
+  }
+  
+  /**
+   * Get media profiles
+   */
+  private async getMediaProfiles(): Promise<void> {
+    if (!this.services.mediaService) {
+      throw new Error('Media service not available');
+    }
+    
+    return new Promise<void>((resolve, reject) => {
+      this.services.mediaService.getProfiles((err: Error | null, profiles: any) => {
         if (err) {
           reject(err);
           return;
         }
         
-        // Refresh presets
-        this.getPresets().catch(console.error);
+        // Store profiles
+        this.profiles = Array.isArray(profiles) ? profiles : [profiles];
         
-        // Return preset token
-        resolve(preset.presetToken);
+        // Update encodings based on profiles
+        const encodings = new Set<string>();
+        for (const profile of this.profiles) {
+          if (profile.videoEncoderConfiguration?.encoding) {
+            encodings.add(profile.videoEncoderConfiguration.encoding);
+          }
+        }
+        
+        // Update capabilities
+        this.capabilities.encodings = Array.from(encodings);
+        
+        resolve();
       });
     });
   }
   
   /**
-   * Test connection to camera
-   * 
-   * @param config Camera configuration
+   * Get presets
    */
-  protected async performTestConnection(config: CameraConfig): Promise<boolean> {
-    return new Promise<boolean>((resolve) => {
-      try {
-        // Create ONVIF camera instance for testing
-        const camOptions = {
-          hostname: config.host,
-          port: config.port || 80,
-          username: config.username,
-          password: config.password,
-          timeout: config.timeout || 5000
-        };
-        
-        // Create camera instance
-        const testCam = new Cam(camOptions, (err: Error | null) => {
-          if (err) {
-            resolve(false);
-            return;
-          }
-          
-          // Get device information as a connection test
-          testCam.getDeviceInformation((infoErr: Error | null) => {
-            resolve(!infoErr);
-          });
-        });
-      } catch (error) {
-        resolve(false);
-      }
-    });
-  }
-  
-  /**
-   * Subscribe to camera events
-   * 
-   * @param eventTypes Event types to subscribe to
-   */
-  protected async performSubscribeToEvents(eventTypes: string[]): Promise<string> {
-    if (!this.cam) {
-      throw new Error('Camera not connected');
-    }
-    
-    if (!this.capabilities.events) {
-      throw new Error('Camera does not support events');
-    }
-    
-    // Generate subscription ID
-    const subscriptionId = `sub-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-    
-    // Setup event listener
-    this.cam.on('event', (event: any) => {
-      // Convert ONVIF event to our format
-      const cameraEvent: CameraEvent = {
-        type: event.topic ? event.topic._: 'unknown',
-        timestamp: new Date(),
-        source: `onvif:${this.config?.host}`,
-        data: event.message || {}
-      };
-      
-      // Emit to our handlers
-      this.dispatchEvent(cameraEvent);
-    });
-    
-    return subscriptionId;
-  }
-  
-  /**
-   * Unsubscribe from camera events
-   * 
-   * @param subscriptionId Subscription identifier
-   */
-  protected async performUnsubscribeFromEvents(subscriptionId: string): Promise<void> {
-    if (!this.cam) {
+  private async getPresets(): Promise<void> {
+    if (!this.services.ptzService) {
+      this.presets = [];
       return;
     }
     
-    // Remove event listeners
-    this.cam.removeAllListeners('event');
+    try {
+      // Find a profile with PTZ configuration
+      const ptzProfile = this.profiles.find(p => p.ptzConfiguration);
+      if (!ptzProfile) {
+        this.presets = [];
+        return;
+      }
+      
+      // Get presets
+      const presets = await new Promise<any[]>((resolve, reject) => {
+        this.services.ptzService.getPresets({
+          ProfileToken: ptzProfile.token
+        }, (err: Error | null, presets: any) => {
+          if (err) {
+            reject(err);
+            return;
+          }
+          
+          // Convert to array if not already
+          const presetArray = Array.isArray(presets.Preset) 
+            ? presets.Preset 
+            : [presets.Preset];
+          
+          resolve(presetArray);
+        });
+      });
+      
+      // Convert to internal format
+      this.presets = presets.map(preset => ({
+        token: preset.token,
+        name: preset.Name,
+        position: preset.PTZPosition ? {
+          x: preset.PTZPosition.PanTilt?.x || 0,
+          y: preset.PTZPosition.PanTilt?.y || 0,
+          zoom: preset.PTZPosition.Zoom?.x || 0
+        } : undefined
+      }));
+      
+      // Update stats
+      this.stats.presetCount = this.presets.length;
+    } catch (error) {
+      this.logger.error(`Failed to get presets: ${error instanceof Error ? error.message : String(error)}`);
+      this.presets = [];
+    }
   }
   
   /**
-   * Discover ONVIF devices on the network
-   * 
-   * @param timeout Discovery timeout in ms
-   * @returns List of discovered devices
+   * Set up event handlers for internal events
    */
-  public static async discoverDevices(timeout: number = 5000): Promise<any[]> {
-    return new Promise<any[]>((resolve) => {
-      const devices: any[] = [];
-      
-      Discovery.probe({ timeout }, (err: Error | null, result: any) => {
-        if (err || !result) {
-          resolve(devices);
-          return;
-        }
-        
-        // Add discovered device
-        devices.push(result);
-      });
-      
-      // Resolve after timeout
-      setTimeout(() => {
-        resolve(devices);
-      }, timeout + 1000);
+  private setupEventHandlers(): void {
+    // Handle errors
+    this.eventEmitter.on(ONVIFEvent.ERROR, (error) => {
+      this.logger.error(`ONVIF error: ${error instanceof Error ? error.message : String(error)}`);
+      this.stats.lastError = error instanceof Error ? error.message : String(error);
     });
+  }
+  
+  /**
+   * Get ONVIF statistics
+   */
+  getONVIFStats(): ONVIFStats {
+    return { ...this.stats };
   }
 }
