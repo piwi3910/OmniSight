@@ -360,14 +360,14 @@ This document outlines the implementation plan for completing the OmniSight vide
 - [x] Create CUDA-optimized detection algorithms
 - [x] Add multi-GPU support for load balancing
 
-#### 9.3 AMD GPU Acceleration ⬜
+#### 9.3 AMD GPU Acceleration ✅
 
-- [ ] Integrate AMD AMF for hardware-accelerated encoding
-- [ ] Implement AMD VCE/VCN for hardware-accelerated decoding
-- [ ] Add ROCm support for video processing operations
-- [ ] Implement MIGraphX integration for accelerated inference
-- [ ] Create OpenCL-optimized detection algorithms
-- [ ] Add multi-GPU support for load balancing
+- [x] Integrate AMD AMF for hardware-accelerated encoding
+- [x] Implement AMD VCE/VCN for hardware-accelerated decoding
+- [x] Add ROCm support for video processing operations
+- [x] Implement MIGraphX integration for accelerated inference
+- [x] Create OpenCL-optimized detection algorithms
+- [x] Add multi-GPU support for load balancing
 
 #### 9.4 Intel GPU Acceleration ✅
 
@@ -742,12 +742,12 @@ Video Processing Task → Acceleration Manager → Hardware Selector → Appropr
 Implemented acceleration platforms:
 - NVIDIA GPU acceleration via CUDA, NVENC, NVDEC, and TensorRT
 - Intel GPU acceleration via oneAPI, Quick Sync Video, and OpenVINO
+- AMD GPU acceleration via ROCm, AMF/VCE, and MIGraphX
 - Multi-GPU support with load balancing and task distribution
 - Dynamic hardware selection based on workload characteristics
 - Power-aware acceleration switching with multiple optimization objectives
 
 Remaining acceleration platforms to implement:
-- AMD GPU acceleration via ROCm, AMF/VCE, and MIGraphX
 - Google Edge TPU acceleration for embedded systems
 - Rockchip NPU acceleration for ARM-based systems
 - ARM Mali GPU acceleration
@@ -781,7 +781,7 @@ Core components implemented:
 | Week 9 | Protocol Extensions 2 | MJPEG and ONVIF implementation | ✅ Complete |
 | Week 10 | Protocol Extensions 3 | HLS enhancements ✅, Third-party API ✅, Proprietary camera API support ⏳ | ⏳ In Progress |
 | Week 11 | Hardware Acceleration 1 | Acceleration framework ✅, NVIDIA ✅ and Intel ✅ support | ✅ Complete |
-| Week 12 | Hardware Acceleration 2 | AMD, Mobile NPUs, Cross-platform optimization ✅ | ⏳ In Progress |
+| Week 12 | Hardware Acceleration 2 | AMD ✅, Mobile NPUs, Cross-platform optimization ✅ | ⏳ In Progress |
 | Week 13 | Frontend Hardware Acceleration UI | Hardware acceleration settings UI, API documentation | ✅ Complete |
 
 ## Future Enhancements
