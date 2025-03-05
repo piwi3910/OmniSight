@@ -288,16 +288,16 @@ This document outlines the implementation plan for completing the OmniSight vide
 - [x] Create CDN-compatible streaming options
 - [x] Add HLS recording and conversion utilities
 
-#### 6.5 Proprietary Camera API Support ⬜
+#### 6.5 Proprietary Camera API Support ✅
 
-- [ ] Implement Hikvision SDK integration
-- [ ] Add Axis VAPIX protocol support
-- [ ] Develop Dahua SDK compatibility
-- [ ] Create Ubiquiti UniFi Video API integration
-- [ ] Implement Hanwha (Samsung) SUNAPI support
-- [ ] Add proprietary PTZ protocol handlers
-- [ ] Create camera-specific feature detection
-- [ ] Implement SDK-specific event handling
+- [x] Implement Hikvision SDK integration
+- [x] Add Axis VAPIX protocol support
+- [x] Develop Dahua SDK compatibility
+- [x] Create Ubiquiti UniFi Video API integration
+- [x] Implement Hanwha (Samsung) SUNAPI support
+- [x] Add proprietary PTZ protocol handlers
+- [x] Create camera-specific feature detection
+- [x] Implement SDK-specific event handling
 
 #### 6.6 Protocol Abstraction Layer ✅
 
@@ -519,9 +519,9 @@ The Stream Ingestion Service now provides:
 
 ```
 RTSP Camera → Stream Ingestion Service → RabbitMQ → [Recording Service, Object Detection]
-                        ↓                                ↓
-               Health Monitoring,               Frame Processing,
-               Auto-reconnection                Event Generation
+                         ↓                                ↓
+                Health Monitoring,               Frame Processing,
+                Auto-reconnection                Event Generation
 ```
 
 Key features implemented:
@@ -537,10 +537,10 @@ The recording flow now works as follows:
 
 ```
 Video Frames → Recording Service → File Storage
-                       ↓                  ↓
-                Segment Creation     Metadata Storage
-                       ↓
-              Thumbnail Generation
+                        ↓                  ↓
+                 Segment Creation     Metadata Storage
+                        ↓
+               Thumbnail Generation
 ```
 
 Key features implemented:
@@ -555,7 +555,7 @@ Key features implemented:
 
 ```
 Video Frame → Worker Thread → TensorFlow.js → Object Detection → Event Generation → 
-         ↓                                                               ↓
+          ↓                                                               ↓
 Thumbnail Generation                                           Database Storage → WebSocket Notification
 ```
 
@@ -894,11 +894,11 @@ Core components implemented:
 | Week 7 | Release Preparation | Documentation, Final testing, Release package | ✅ Complete |
 | Week 8 | Protocol Extensions 1 | WebRTC implementation complete, Protocol Abstraction Layer | ✅ Complete |
 | Week 9 | Protocol Extensions 2 | MJPEG and ONVIF implementation | ✅ Complete |
-| Week 10 | Protocol Extensions 3 | HLS enhancements ✅, Third-party API ✅, Proprietary camera API support ⏳ | ⏳ In Progress |
+| Week 10 | Protocol Extensions 3 | HLS enhancements ✅, Third-party API ✅, Proprietary camera API support ✅ | ✅ Complete |
 | Week 11 | Hardware Acceleration 1 | Acceleration framework ✅, NVIDIA ✅ and Intel ✅ support | ✅ Complete |
 | Week 12 | Hardware Acceleration 2 | AMD ✅, Mobile NPUs ✅, Cross-platform optimization ✅ | ✅ Complete |
 | Week 13 | Frontend Hardware Acceleration UI | Hardware acceleration settings UI, API documentation | ✅ Complete |
-| Week 14 | Comprehensive Testing | Unit and integration testing for all services | ⬜ Not Started |
+| Week 14 | Comprehensive Testing | Unit and integration testing for all services | ✅ Complete |
 
 ## Future Enhancements
 
