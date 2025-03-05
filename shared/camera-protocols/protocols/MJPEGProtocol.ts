@@ -6,8 +6,6 @@
  * compatibility with older systems.
  */
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { EventEmitter } from 'events';
 import axios, { AxiosInstance } from 'axios';
 import * as http from 'http';
 import * as https from 'https';
@@ -1020,9 +1018,20 @@ export class MJPEGProtocol extends AbstractCameraProtocol implements ICameraProt
       read() {}, // No-op, we push frames in the event handler
     });
 
+    // Define event types
+    interface FrameReceivedEvent {
+      cameraId: string;
+      frame: MJPEGFrame;
+    }
+
+    interface ErrorEvent {
+      cameraId: string;
+      error: Error;
+      timestamp: Date;
+    }
+
     // Handle frame received event
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const frameHandler = (event: any) => {
+    const frameHandler = (event: FrameReceivedEvent) => {
       stream.push(event.frame);
     };
 
@@ -1033,8 +1042,7 @@ export class MJPEGProtocol extends AbstractCameraProtocol implements ICameraProt
     };
 
     // Handle error event
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const errorHandler = (event: any) => {
+    const errorHandler = (event: ErrorEvent) => {
       stream.emit('error', event.error);
       cleanup();
     };
