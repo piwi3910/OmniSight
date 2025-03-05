@@ -1,6 +1,6 @@
 /**
  * Mobile and Embedded Acceleration Provider
- * 
+ *
  * This module provides hardware acceleration support for mobile and embedded platforms using:
  * - Google Edge TPU for machine learning inference
  * - Rockchip NPU for embedded device acceleration
@@ -17,8 +17,24 @@ import {
   AccelerationTask,
   AccelerationResult,
   AccelerationStats,
-  AccelerationProviderFactory
+  AccelerationProviderFactory,
 } from '../index';
+
+import {
+  GPUDevice,
+  AccelerationContext,
+  AccelerationSettings,
+  AccelerationStatistics,
+  HardwareCapability,
+  DeviceInitializationOptions,
+  EncodingParameters,
+  DecodingParameters,
+  ProcessingOperation,
+  ProcessingResult,
+  DeviceError,
+  EmbeddedDeviceInfo,
+  MobileAccelerationOptions,
+} from '../../types/hardware-acceleration';
 
 /**
  * Google Edge TPU operations for ML acceleration
@@ -29,10 +45,14 @@ interface EdgeTpuOperations {
   unloadModel(handle: number): Promise<void>;
   allocateBuffers(modelHandle: number): Promise<Record<string, number>>; // Returns input/output buffers
   freeBuffers(buffers: Record<string, number>): Promise<void>;
-  setInputTensor(buffers: Record<string, number>, inputName: string, data: ArrayBuffer): Promise<void>;
+  setInputTensor(
+    buffers: Record<string, number>,
+    inputName: string,
+    data: ArrayBuffer
+  ): Promise<void>;
   getOutputTensor(buffers: Record<string, number>, outputName: string): Promise<ArrayBuffer>;
   runInference(modelHandle: number, buffers: Record<string, number>): Promise<void>;
-  getDeviceInfo(): Promise<Record<string, any>>;
+  getDeviceInfo(): Promise<GPUDevice>;
 }
 
 /**
@@ -40,14 +60,18 @@ interface EdgeTpuOperations {
  */
 interface RockchipNpuOperations {
   initialize(): Promise<boolean>;
-  loadModel(modelPath: string, options?: any): Promise<number>; // Returns model handle
+  loadModel(modelPath: string, options?: DeviceInitializationOptions): Promise<number>; // Returns model handle
   unloadModel(handle: number): Promise<void>;
   allocateBuffers(modelHandle: number): Promise<Record<string, number>>; // Returns input/output buffers
   freeBuffers(buffers: Record<string, number>): Promise<void>;
-  setInputTensor(buffers: Record<string, number>, inputName: string, data: ArrayBuffer): Promise<void>;
+  setInputTensor(
+    buffers: Record<string, number>,
+    inputName: string,
+    data: ArrayBuffer
+  ): Promise<void>;
   getOutputTensor(buffers: Record<string, number>, outputName: string): Promise<ArrayBuffer>;
   runInference(modelHandle: number, buffers: Record<string, number>): Promise<void>;
-  getDeviceInfo(): Promise<Record<string, any>>;
+  getDeviceInfo(): Promise<GPUDevice>;
 }
 
 /**
@@ -55,16 +79,20 @@ interface RockchipNpuOperations {
  */
 interface HexagonDspOperations {
   initialize(): Promise<boolean>;
-  loadModel(modelPath: string, options?: any): Promise<number>; // Returns model handle
+  loadModel(modelPath: string, options?: DeviceInitializationOptions): Promise<number>; // Returns model handle
   unloadModel(handle: number): Promise<void>;
   allocateBuffers(modelHandle: number): Promise<Record<string, number>>; // Returns input/output buffers
   freeBuffers(buffers: Record<string, number>): Promise<void>;
-  setInputTensor(buffers: Record<string, number>, inputName: string, data: ArrayBuffer): Promise<void>;
+  setInputTensor(
+    buffers: Record<string, number>,
+    inputName: string,
+    data: ArrayBuffer
+  ): Promise<void>;
   getOutputTensor(buffers: Record<string, number>, outputName: string): Promise<ArrayBuffer>;
   runInference(modelHandle: number, buffers: Record<string, number>): Promise<void>;
-  getDeviceInfo(): Promise<Record<string, any>>;
+  getDeviceInfo(): Promise<GPUDevice>;
   // HVX vector operations
-  executeVectorKernel(kernelName: string, args: any[]): Promise<void>;
+  executeVectorKernel(kernelName: string, args: unknown[]): Promise<void>;
 }
 
 /**
@@ -76,9 +104,9 @@ interface MaliGpuOperations {
   freeMemory(ptr: number): Promise<void>;
   copyHostToDevice(hostPtr: ArrayBuffer, devicePtr: number, size: number): Promise<void>;
   copyDeviceToHost(devicePtr: number, hostPtr: ArrayBuffer, size: number): Promise<void>;
-  executeKernel(kernelName: string, args: any[]): Promise<void>;
+  executeKernel(kernelName: string, args: unknown[]): Promise<void>;
   synchronize(): Promise<void>;
-  getDeviceInfo(): Promise<Record<string, any>>;
+  getDeviceInfo(): Promise<GPUDevice>;
 }
 
 /**
@@ -86,12 +114,12 @@ interface MaliGpuOperations {
  */
 interface WebNNOperations {
   initialize(): Promise<boolean>;
-  createNeuralNetwork(modelDefinition: any): Promise<number>; // Returns network handle
+  createNeuralNetwork(modelDefinition: unknown): Promise<number>; // Returns network handle
   releaseNeuralNetwork(handle: number): Promise<void>;
-  createOperandDescriptors(networkHandle: number): Promise<Record<string, any>>;
+  createOperandDescriptors(networkHandle: number): Promise<Record<string, unknown>>;
   setInputOperand(networkHandle: number, name: string, data: ArrayBuffer): Promise<void>;
   getOutputOperand(networkHandle: number, name: string): Promise<ArrayBuffer>;
-  compileNetwork(networkHandle: number, options?: any): Promise<void>;
+  compileNetwork(networkHandle: number, options?: DeviceInitializationOptions): Promise<void>;
   computeNetwork(networkHandle: number): Promise<void>;
   getSupportedOperations(): Promise<string[]>;
   getPreferredBackend(): Promise<string>;
@@ -103,6 +131,7 @@ interface WebNNOperations {
  */
 class MockEdgeTpuOperations implements EdgeTpuOperations {
   private initialized = false;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private models = new Map<number, any>();
   private nextHandle = 1;
 
@@ -129,21 +158,21 @@ class MockEdgeTpuOperations implements EdgeTpuOperations {
     if (!this.initialized) {
       throw new Error('Edge TPU not initialized');
     }
-    
+
     console.log(`Loading Edge TPU model from: ${modelPath}`);
     // In a real implementation, this would load a quantized tflite model for Edge TPU
-    
+
     const handle = this.nextHandle++;
     this.models.set(handle, {
       path: modelPath,
       inputs: {
-        'input': { shape: [1, 320, 320, 3], dtype: 'uint8' } // Edge TPU typically uses quantized uint8 inputs
+        input: { shape: [1, 320, 320, 3], dtype: 'uint8' }, // Edge TPU typically uses quantized uint8 inputs
       },
       outputs: {
-        'output': { shape: [1, 1001], dtype: 'uint8' }
-      }
+        output: { shape: [1, 1001], dtype: 'uint8' },
+      },
     });
-    
+
     return handle;
   }
 
@@ -164,9 +193,9 @@ class MockEdgeTpuOperations implements EdgeTpuOperations {
     if (!this.models.has(modelHandle)) {
       throw new Error(`Invalid model handle: ${modelHandle}`);
     }
-    
+
     const model = this.models.get(modelHandle)!;
-    
+
     // Allocate buffers for each input and output
     const allocatedBuffers: Record<string, number> = {};
     for (const [name, info] of Object.entries(model.inputs)) {
@@ -175,7 +204,7 @@ class MockEdgeTpuOperations implements EdgeTpuOperations {
     for (const [name, info] of Object.entries(model.outputs)) {
       allocatedBuffers[name] = this.nextHandle++;
     }
-    
+
     return allocatedBuffers;
   }
 
@@ -183,18 +212,22 @@ class MockEdgeTpuOperations implements EdgeTpuOperations {
     if (!this.initialized) {
       throw new Error('Edge TPU not initialized');
     }
-    
+
     // In a real implementation, this would free allocated buffers
   }
 
-  async setInputTensor(buffers: Record<string, number>, inputName: string, data: ArrayBuffer): Promise<void> {
+  async setInputTensor(
+    buffers: Record<string, number>,
+    inputName: string,
+    data: ArrayBuffer
+  ): Promise<void> {
     if (!this.initialized) {
       throw new Error('Edge TPU not initialized');
     }
     if (!buffers[inputName]) {
       throw new Error(`Invalid input name: ${inputName}`);
     }
-    
+
     // In a real implementation, this would copy data to Edge TPU input buffer
   }
 
@@ -205,7 +238,7 @@ class MockEdgeTpuOperations implements EdgeTpuOperations {
     if (!buffers[outputName]) {
       throw new Error(`Invalid output name: ${outputName}`);
     }
-    
+
     // In a real implementation, this would copy data from Edge TPU output buffer
     // Return mock output data
     return new ArrayBuffer(1001); // Mock classification result
@@ -218,32 +251,49 @@ class MockEdgeTpuOperations implements EdgeTpuOperations {
     if (!this.models.has(modelHandle)) {
       throw new Error(`Invalid model handle: ${modelHandle}`);
     }
-    
+
     // In a real implementation, this would execute inference on Edge TPU
     await new Promise(resolve => setTimeout(resolve, 5)); // Edge TPU is very fast, only a few ms delay
   }
 
-  async getDeviceInfo(): Promise<Record<string, any>> {
+  async getDeviceInfo(): Promise<GPUDevice> {
     if (!this.initialized) {
       throw new Error('Edge TPU not initialized');
     }
-    
-    // Mock device information
+
+    // Return device info that matches the GPUDevice interface
     return {
-      deviceType: 'USB', // or 'PCIe', 'Embedded'
-      firmwareVersion: '16.0',
-      temperature: 45 + Math.random() * 10, // Celsius
-      tpuCoreCount: 1,
-      maximumFrequency: 500, // MHz
-      powerState: 'Active',
-      supportedModels: ['MobileNet', 'EfficientDet-Lite', 'YOLOv5'],
-      availableRam: 8 * 1024 * 1024 // 8 MB of TPU memory
+      id: 'edge-tpu-01',
+      name: 'Google Edge TPU',
+      vendor: 'Google',
+      type: 'other',
+      memory: 8 * 1024 * 1024, // 8 MB of TPU memory
+      compute: {
+        computeUnits: 1,
+      },
+      driver: {
+        version: '16.0',
+        date: new Date().toISOString().split('T')[0],
+      },
+      capabilities: ['ML.Inference', 'INT8', 'INT16', 'Quantized'],
+      features: {
+        tensorAcceleration: true,
+        lowPower: true,
+        multiModel: true,
+      },
+      temperature: 45 + Math.random() * 10,
+      power: {
+        current: 2.5,
+        limit: 5.0,
+        unit: 'W',
+      },
     };
   }
 }
 
 class MockRockchipNpuOperations implements RockchipNpuOperations {
   private initialized = false;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private models = new Map<number, any>();
   private nextHandle = 1;
 
@@ -270,22 +320,22 @@ class MockRockchipNpuOperations implements RockchipNpuOperations {
     if (!this.initialized) {
       throw new Error('Rockchip NPU not initialized');
     }
-    
+
     console.log(`Loading Rockchip NPU model from: ${modelPath}`);
     // In a real implementation, this would load a RKNN model
-    
+
     const handle = this.nextHandle++;
     this.models.set(handle, {
       path: modelPath,
       options,
       inputs: {
-        'input': { shape: [1, 224, 224, 3], dtype: 'uint8' }
+        input: { shape: [1, 224, 224, 3], dtype: 'uint8' },
       },
       outputs: {
-        'output': { shape: [1, 1000], dtype: 'float32' }
-      }
+        output: { shape: [1, 1000], dtype: 'float32' },
+      },
     });
-    
+
     return handle;
   }
 
@@ -306,9 +356,9 @@ class MockRockchipNpuOperations implements RockchipNpuOperations {
     if (!this.models.has(modelHandle)) {
       throw new Error(`Invalid model handle: ${modelHandle}`);
     }
-    
+
     const model = this.models.get(modelHandle)!;
-    
+
     // Allocate buffers for each input and output
     const allocatedBuffers: Record<string, number> = {};
     for (const [name, info] of Object.entries(model.inputs)) {
@@ -317,7 +367,7 @@ class MockRockchipNpuOperations implements RockchipNpuOperations {
     for (const [name, info] of Object.entries(model.outputs)) {
       allocatedBuffers[name] = this.nextHandle++;
     }
-    
+
     return allocatedBuffers;
   }
 
@@ -325,18 +375,22 @@ class MockRockchipNpuOperations implements RockchipNpuOperations {
     if (!this.initialized) {
       throw new Error('Rockchip NPU not initialized');
     }
-    
+
     // In a real implementation, this would free allocated buffers
   }
 
-  async setInputTensor(buffers: Record<string, number>, inputName: string, data: ArrayBuffer): Promise<void> {
+  async setInputTensor(
+    buffers: Record<string, number>,
+    inputName: string,
+    data: ArrayBuffer
+  ): Promise<void> {
     if (!this.initialized) {
       throw new Error('Rockchip NPU not initialized');
     }
     if (!buffers[inputName]) {
       throw new Error(`Invalid input name: ${inputName}`);
     }
-    
+
     // In a real implementation, this would copy data to NPU input buffer
   }
 
@@ -347,7 +401,7 @@ class MockRockchipNpuOperations implements RockchipNpuOperations {
     if (!buffers[outputName]) {
       throw new Error(`Invalid output name: ${outputName}`);
     }
-    
+
     // In a real implementation, this would copy data from NPU output buffer
     // Return mock output data
     return new ArrayBuffer(4000); // 1000 float32 values (4 bytes each)
@@ -360,33 +414,51 @@ class MockRockchipNpuOperations implements RockchipNpuOperations {
     if (!this.models.has(modelHandle)) {
       throw new Error(`Invalid model handle: ${modelHandle}`);
     }
-    
+
     // In a real implementation, this would execute inference on NPU
     await new Promise(resolve => setTimeout(resolve, 10)); // Simulate work
   }
 
-  async getDeviceInfo(): Promise<Record<string, any>> {
+  async getDeviceInfo(): Promise<GPUDevice> {
     if (!this.initialized) {
       throw new Error('Rockchip NPU not initialized');
     }
-    
-    // Mock device information
+
+    // Return a properly typed GPUDevice object
     return {
-      deviceType: 'RK3399Pro',
-      nccVersion: '1.6.0',
-      nccExtensions: ['rknn', 'rknn_ext'],
-      computePower: 3.0, // TOPS
-      frequency: 800, // MHz
-      temperatureCurrent: 40 + Math.random() * 15, // Celsius
-      temperatureMax: 85, // Celsius
-      memorySize: 0.5 * 1024 * 1024 * 1024, // 0.5 GB NPU memory
-      supportedLayerTypes: ['Conv', 'Pool', 'FC', 'BatchNorm', 'Activation']
+      id: 'rockchip-npu-01',
+      name: 'RK3399Pro NPU',
+      vendor: 'Rockchip',
+      type: 'other',
+      memory: 0.5 * 1024 * 1024 * 1024, // 0.5 GB NPU memory
+      compute: {
+        computeUnits: 3,
+      },
+      driver: {
+        version: '1.6.0',
+      },
+      capabilities: ['Conv', 'Pool', 'FC', 'BatchNorm', 'Activation'],
+      features: {
+        tensorAcceleration: true,
+        lowPower: true,
+        multiModel: false,
+      },
+      performance: {
+        computePower: 3.0, // TOPS
+      },
+      temperature: 40 + Math.random() * 15,
+      power: {
+        current: 3.0,
+        limit: 5.0,
+        unit: 'W',
+      },
     };
   }
 }
 
 class MockHexagonDspOperations implements HexagonDspOperations {
   private initialized = false;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private models = new Map<number, any>();
   private nextHandle = 1;
 
@@ -413,22 +485,22 @@ class MockHexagonDspOperations implements HexagonDspOperations {
     if (!this.initialized) {
       throw new Error('Hexagon DSP not initialized');
     }
-    
+
     console.log(`Loading Hexagon DSP model from: ${modelPath}`);
     // In a real implementation, this would load a DLC (Deep Learning Container) model
-    
+
     const handle = this.nextHandle++;
     this.models.set(handle, {
       path: modelPath,
       options,
       inputs: {
-        'input': { shape: [1, 224, 224, 3], dtype: 'float32' }
+        input: { shape: [1, 224, 224, 3], dtype: 'float32' },
       },
       outputs: {
-        'output': { shape: [1, 1000], dtype: 'float32' }
-      }
+        output: { shape: [1, 1000], dtype: 'float32' },
+      },
     });
-    
+
     return handle;
   }
 
@@ -449,9 +521,9 @@ class MockHexagonDspOperations implements HexagonDspOperations {
     if (!this.models.has(modelHandle)) {
       throw new Error(`Invalid model handle: ${modelHandle}`);
     }
-    
+
     const model = this.models.get(modelHandle)!;
-    
+
     // Allocate buffers for each input and output
     const allocatedBuffers: Record<string, number> = {};
     for (const [name, info] of Object.entries(model.inputs)) {
@@ -460,7 +532,7 @@ class MockHexagonDspOperations implements HexagonDspOperations {
     for (const [name, info] of Object.entries(model.outputs)) {
       allocatedBuffers[name] = this.nextHandle++;
     }
-    
+
     return allocatedBuffers;
   }
 
@@ -468,18 +540,22 @@ class MockHexagonDspOperations implements HexagonDspOperations {
     if (!this.initialized) {
       throw new Error('Hexagon DSP not initialized');
     }
-    
+
     // In a real implementation, this would free allocated buffers
   }
 
-  async setInputTensor(buffers: Record<string, number>, inputName: string, data: ArrayBuffer): Promise<void> {
+  async setInputTensor(
+    buffers: Record<string, number>,
+    inputName: string,
+    data: ArrayBuffer
+  ): Promise<void> {
     if (!this.initialized) {
       throw new Error('Hexagon DSP not initialized');
     }
     if (!buffers[inputName]) {
       throw new Error(`Invalid input name: ${inputName}`);
     }
-    
+
     // In a real implementation, this would copy data to DSP input buffer
   }
 
@@ -490,7 +566,7 @@ class MockHexagonDspOperations implements HexagonDspOperations {
     if (!buffers[outputName]) {
       throw new Error(`Invalid output name: ${outputName}`);
     }
-    
+
     // In a real implementation, this would copy data from DSP output buffer
     // Return mock output data
     return new ArrayBuffer(4000); // 1000 float32 values (4 bytes each)
@@ -503,40 +579,65 @@ class MockHexagonDspOperations implements HexagonDspOperations {
     if (!this.models.has(modelHandle)) {
       throw new Error(`Invalid model handle: ${modelHandle}`);
     }
-    
+
     // In a real implementation, this would execute inference on DSP
     await new Promise(resolve => setTimeout(resolve, 8)); // Simulate work
   }
 
-  async executeVectorKernel(kernelName: string, args: any[]): Promise<void> {
+  async executeVectorKernel(kernelName: string, args: unknown[]): Promise<void> {
     if (!this.initialized) {
       throw new Error('Hexagon DSP not initialized');
     }
-    
+
     // In a real implementation, this would execute a HVX vector kernel
     console.log(`Executing Hexagon Vector kernel: ${kernelName}`);
     await new Promise(resolve => setTimeout(resolve, 2)); // HVX operations are very fast
   }
 
-  async getDeviceInfo(): Promise<Record<string, any>> {
+  async getDeviceInfo(): Promise<GPUDevice> {
     if (!this.initialized) {
       throw new Error('Hexagon DSP not initialized');
     }
-    
-    // Mock device information
+
+    // Return a properly typed GPUDevice object
     return {
-      hexagonVersion: 'v68',
-      hvxVersion: 'v68',
-      nnVersion: '2.10.0',
-      clockRate: 1500, // MHz
-      numThreads: 4,
-      hvxLength: 1024, // bit-width
-      temperatureCurrent: 38 + Math.random() * 12, // Celsius
-      supportedOps: ['Conv2d', 'DepthwiseConv2d', 'FullyConnected', 'MaxPool', 'AvgPool', 'Softmax'],
-      memory: {
-        tcm: 8 * 1024 * 1024, // 8 MB TCM
-        ddr: 16 * 1024 * 1024 // 16 MB accessible DDR
-      }
+      id: 'hexagon-dsp-01',
+      name: 'Qualcomm Hexagon DSP',
+      vendor: 'Qualcomm',
+      type: 'other',
+      memory: 24 * 1024 * 1024, // 24 MB combined memory (8 MB TCM + 16 MB DDR)
+      compute: {
+        computeUnits: 4, // numThreads
+      },
+      driver: {
+        version: 'v68', // hexagonVersion
+        date: new Date().toISOString().split('T')[0],
+      },
+      capabilities: [
+        'Conv2d',
+        'DepthwiseConv2d',
+        'FullyConnected',
+        'MaxPool',
+        'AvgPool',
+        'Softmax',
+        'HVX',
+      ],
+      features: {
+        vectorProcessing: true,
+        tensorAcceleration: true,
+        lowPower: true,
+        hexagonNN: true,
+      },
+      performance: {
+        clockRate: 1500, // MHz
+        hvxLength: 1024, // bit-width
+      },
+      temperature: 38 + Math.random() * 12,
+      power: {
+        current: 1.5,
+        limit: 3.0,
+        unit: 'W',
+      },
     };
   }
 }
@@ -610,7 +711,7 @@ class MockMaliGpuOperations implements MaliGpuOperations {
     // In a real implementation, this would copy data from GPU memory
   }
 
-  async executeKernel(kernelName: string, args: any[]): Promise<void> {
+  async executeKernel(kernelName: string, args: unknown[]): Promise<void> {
     if (!this.initialized) {
       throw new Error('Mali GPU not initialized');
     }
@@ -627,30 +728,49 @@ class MockMaliGpuOperations implements MaliGpuOperations {
     await new Promise(resolve => setTimeout(resolve, 5)); // Simulate sync
   }
 
-  async getDeviceInfo(): Promise<Record<string, any>> {
+  async getDeviceInfo(): Promise<GPUDevice> {
     if (!this.initialized) {
       throw new Error('Mali GPU not initialized');
     }
-    
-    // Mock device information
+
+    // Return a properly typed GPUDevice object
     return {
-      model: 'Mali-G78',
-      revision: 'r1p0',
-      coreCount: 10,
-      frequency: 850, // MHz
-      supportedAPIs: ['OpenCL 2.0', 'OpenGL ES 3.2', 'Vulkan 1.2'],
-      driverVersion: '32.0.0',
-      memoryBandwidth: 25.6, // GB/s
-      computeUnits: 10,
-      temperatureCurrent: 42 + Math.random() * 15, // Celsius
-      memorySize: 4 * 1024 * 1024 * 1024 // 4 GB shared system memory
+      id: 'mali-gpu-01',
+      name: 'Mali-G78',
+      vendor: 'ARM',
+      type: 'mali',
+      memory: 4 * 1024 * 1024 * 1024, // 4 GB shared system memory
+      compute: {
+        computeUnits: 10,
+      },
+      driver: {
+        version: '32.0.0',
+        date: new Date().toISOString().split('T')[0],
+      },
+      capabilities: ['OpenCL 2.0', 'OpenGL ES 3.2', 'Vulkan 1.2', 'Compute', 'Graphics'],
+      features: {
+        opencl: true,
+        vulkan: true,
+        opengl: true,
+        computeShaders: true,
+      },
+      performance: {
+        frequency: 850, // MHz
+        memoryBandwidth: 25.6, // GB/s
+      },
+      temperature: 42 + Math.random() * 15,
+      power: {
+        current: 4.0,
+        limit: 7.0,
+        unit: 'W',
+      },
     };
   }
 }
 
 class MockWebNNOperations implements WebNNOperations {
   private initialized = false;
-  private networks = new Map<number, any>();
+  private networks = new Map<number, Record<string, unknown>>();
   private nextHandle = 1;
 
   async initialize(): Promise<boolean> {
@@ -672,25 +792,52 @@ class MockWebNNOperations implements WebNNOperations {
     }
   }
 
-  async createNeuralNetwork(modelDefinition: any): Promise<number> {
+  async createNeuralNetwork(modelDefinition: unknown): Promise<number> {
     if (!this.initialized) {
       throw new Error('WebNN not initialized');
     }
-    
+
     console.log('Creating WebNN neural network');
-    
+
     const handle = this.nextHandle++;
+    // Create a default network structure with type safety
+    const defaultInputs = { input: { shape: [1, 224, 224, 3], dtype: 'float32' } };
+    const defaultOutputs = { output: { shape: [1, 1000], dtype: 'float32' } };
+
+    // Type guard for the modelDefinition to safely access its properties
+    const getInputs = () => {
+      if (
+        modelDefinition &&
+        typeof modelDefinition === 'object' &&
+        modelDefinition !== null &&
+        'inputs' in modelDefinition &&
+        modelDefinition.inputs
+      ) {
+        return modelDefinition.inputs;
+      }
+      return defaultInputs;
+    };
+
+    const getOutputs = () => {
+      if (
+        modelDefinition &&
+        typeof modelDefinition === 'object' &&
+        modelDefinition !== null &&
+        'outputs' in modelDefinition &&
+        modelDefinition.outputs
+      ) {
+        return modelDefinition.outputs;
+      }
+      return defaultOutputs;
+    };
+
     this.networks.set(handle, {
       definition: modelDefinition,
-      inputs: modelDefinition.inputs || {
-        'input': { shape: [1, 224, 224, 3], dtype: 'float32' }
-      },
-      outputs: modelDefinition.outputs || {
-        'output': { shape: [1, 1000], dtype: 'float32' }
-      },
-      compiled: false
+      inputs: getInputs(),
+      outputs: getOutputs(),
+      compiled: false,
     });
-    
+
     return handle;
   }
 
@@ -704,33 +851,47 @@ class MockWebNNOperations implements WebNNOperations {
     this.networks.delete(handle);
   }
 
-  async createOperandDescriptors(networkHandle: number): Promise<Record<string, any>> {
+  async createOperandDescriptors(networkHandle: number): Promise<Record<string, unknown>> {
     if (!this.initialized) {
       throw new Error('WebNN not initialized');
     }
     if (!this.networks.has(networkHandle)) {
       throw new Error(`Invalid network handle: ${networkHandle}`);
     }
-    
+
     const network = this.networks.get(networkHandle)!;
-    
+
     // Create operand descriptors for inputs and outputs
-    const descriptors: Record<string, any> = {};
-    for (const [name, info] of Object.entries(network.inputs)) {
-      descriptors[name] = {
-        type: 'input',
-        dimensions: (info as any).shape,
-        dataType: (info as any).dtype
-      };
+    const descriptors: Record<string, unknown> = {};
+
+    // Type guard to safely process the inputs and outputs as Records
+    const processNetworkIO = (ioObj: unknown, ioType: 'input' | 'output'): void => {
+      if (ioObj && typeof ioObj === 'object' && ioObj !== null) {
+        // Safe to process as a Record
+        Object.entries(ioObj as Record<string, unknown>).forEach(([name, info]) => {
+          if (info && typeof info === 'object' && info !== null) {
+            const infoObj = info as Record<string, unknown>;
+            descriptors[name] = {
+              type: ioType,
+              dimensions: 'shape' in infoObj ? infoObj.shape : [1, 1],
+              dataType: 'dtype' in infoObj ? infoObj.dtype : 'float32',
+            };
+          }
+        });
+      }
+    };
+
+    // Process inputs and outputs safely
+    if (network && typeof network === 'object' && network !== null) {
+      if ('inputs' in network && network.inputs) {
+        processNetworkIO(network.inputs, 'input');
+      }
+
+      if ('outputs' in network && network.outputs) {
+        processNetworkIO(network.outputs, 'output');
+      }
     }
-    for (const [name, info] of Object.entries(network.outputs)) {
-      descriptors[name] = {
-        type: 'output',
-        dimensions: (info as any).shape,
-        dataType: (info as any).dtype
-      };
-    }
-    
+
     return descriptors;
   }
 
@@ -741,13 +902,27 @@ class MockWebNNOperations implements WebNNOperations {
     if (!this.networks.has(networkHandle)) {
       throw new Error(`Invalid network handle: ${networkHandle}`);
     }
-    
+
     const network = this.networks.get(networkHandle)!;
-    if (!network.inputs[name]) {
-      throw new Error(`Invalid input name: ${name}`);
+
+    // Type guard for network.inputs
+    if (
+      network &&
+      typeof network === 'object' &&
+      network !== null &&
+      'inputs' in network &&
+      network.inputs &&
+      typeof network.inputs === 'object'
+    ) {
+      const inputs = network.inputs as Record<string, unknown>;
+      if (!(name in inputs)) {
+        throw new Error(`Invalid input name: ${name}`);
+      }
+
+      // In a real implementation, this would set input operand data
+    } else {
+      throw new Error('Network has invalid input structure');
     }
-    
-    // In a real implementation, this would set input operand data
   }
 
   async getOutputOperand(networkHandle: number, name: string): Promise<ArrayBuffer> {
@@ -757,34 +932,69 @@ class MockWebNNOperations implements WebNNOperations {
     if (!this.networks.has(networkHandle)) {
       throw new Error(`Invalid network handle: ${networkHandle}`);
     }
-    
+
     const network = this.networks.get(networkHandle)!;
-    if (!network.outputs[name]) {
-      throw new Error(`Invalid output name: ${name}`);
+
+    // Type guard for network.outputs
+    if (
+      network &&
+      typeof network === 'object' &&
+      network !== null &&
+      'outputs' in network &&
+      network.outputs &&
+      typeof network.outputs === 'object'
+    ) {
+      const outputs = network.outputs as Record<string, unknown>;
+      if (!(name in outputs)) {
+        throw new Error(`Invalid output name: ${name}`);
+      }
+
+      // In a real implementation, this would get output operand data
+      // Return mock output data with safety checks
+      const outputInfo = outputs[name] as Record<string, unknown>;
+
+      // Safe default values if shape or dtype are not available
+      const getShape = (): number[] => {
+        if ('shape' in outputInfo && Array.isArray(outputInfo.shape)) {
+          return outputInfo.shape as number[];
+        }
+        return [1, 1000]; // Default shape
+      };
+
+      const getDtype = (): string => {
+        if ('dtype' in outputInfo && typeof outputInfo.dtype === 'string') {
+          return outputInfo.dtype;
+        }
+        return 'float32'; // Default dtype
+      };
+
+      const outputShape = getShape();
+      const outputSize = outputShape.reduce((a: number, b: number) => a * b, 1);
+      const bytesPerElement = getDtype() === 'float32' ? 4 : 1;
+
+      return new ArrayBuffer(outputSize * bytesPerElement);
+    } else {
+      // Return a default buffer if outputs structure is invalid
+      return new ArrayBuffer(4000); // 1000 float32 values as a fallback
     }
-    
-    // In a real implementation, this would get output operand data
-    // Return mock output data
-    const outputInfo = network.outputs[name];
-    const outputSize = outputInfo.shape.reduce((a: number, b: number) => a * b, 1);
-    const bytesPerElement = outputInfo.dtype === 'float32' ? 4 : 1;
-    
-    return new ArrayBuffer(outputSize * bytesPerElement);
   }
 
-  async compileNetwork(networkHandle: number, options?: any): Promise<void> {
+  async compileNetwork(
+    networkHandle: number,
+    options?: DeviceInitializationOptions
+  ): Promise<void> {
     if (!this.initialized) {
       throw new Error('WebNN not initialized');
     }
     if (!this.networks.has(networkHandle)) {
       throw new Error(`Invalid network handle: ${networkHandle}`);
     }
-    
+
     const network = this.networks.get(networkHandle)!;
-    
+
     // In a real implementation, this would compile the network for the target device
     await new Promise(resolve => setTimeout(resolve, 200)); // Compilation can take time
-    
+
     network.compiled = true;
   }
 
@@ -795,12 +1005,12 @@ class MockWebNNOperations implements WebNNOperations {
     if (!this.networks.has(networkHandle)) {
       throw new Error(`Invalid network handle: ${networkHandle}`);
     }
-    
+
     const network = this.networks.get(networkHandle)!;
     if (!network.compiled) {
       throw new Error('Network not compiled');
     }
-    
+
     // In a real implementation, this would execute the compiled network
     await new Promise(resolve => setTimeout(resolve, 15)); // Simulate work
   }
@@ -809,7 +1019,7 @@ class MockWebNNOperations implements WebNNOperations {
     if (!this.initialized) {
       throw new Error('WebNN not initialized');
     }
-    
+
     // Mock supported operations
     return [
       'conv2d',
@@ -826,7 +1036,7 @@ class MockWebNNOperations implements WebNNOperations {
       'reshape',
       'softmax',
       'gemm',
-      'batchNormalization'
+      'batchNormalization',
     ];
   }
 
@@ -834,7 +1044,7 @@ class MockWebNNOperations implements WebNNOperations {
     if (!this.initialized) {
       throw new Error('WebNN not initialized');
     }
-    
+
     // Mock preferred backend, in real implementation would be one of:
     // 'cpu', 'gpu', 'npu', or 'default'
     return 'gpu';
@@ -850,7 +1060,7 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
   private hexagonDsp: HexagonDspOperations;
   private maliGpu: MaliGpuOperations;
   private webnn: WebNNOperations;
-  
+
   private initialized = false;
   private capabilities: AccelerationCapability[] = [];
   private detectedDevices: string[] = [];
@@ -867,7 +1077,7 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
       executionTimeMs: number;
     }>;
   };
-  
+
   constructor() {
     // Initialize operations
     this.edgeTpu = new MockEdgeTpuOperations();
@@ -875,7 +1085,7 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
     this.hexagonDsp = new MockHexagonDspOperations();
     this.maliGpu = new MockMaliGpuOperations();
     this.webnn = new MockWebNNOperations();
-    
+
     // Initialize stats
     this.stats = {
       totalTasks: 0,
@@ -883,28 +1093,31 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
       failedTasks: 0,
       totalExecutionTimeMs: 0,
       startTime: Date.now(),
-      taskHistory: []
+      taskHistory: [],
     };
   }
-  
+
   /**
    * Initialize the provider
    */
   async initialize(): Promise<boolean> {
     console.log('Initializing Mobile and Embedded acceleration provider...');
-    
+
     // Initialize all operations
     const edgeTpuInitialized = await this.edgeTpu.initialize();
     const rockchipNpuInitialized = await this.rockchipNpu.initialize();
     const hexagonDspInitialized = await this.hexagonDsp.initialize();
     const maliGpuInitialized = await this.maliGpu.initialize();
     const webnnInitialized = await this.webnn.initialize();
-    
+
     // We need at least one capability to consider the provider initialized
-    this.initialized = edgeTpuInitialized || rockchipNpuInitialized || 
-                       hexagonDspInitialized || maliGpuInitialized || 
-                       webnnInitialized;
-    
+    this.initialized =
+      edgeTpuInitialized ||
+      rockchipNpuInitialized ||
+      hexagonDspInitialized ||
+      maliGpuInitialized ||
+      webnnInitialized;
+
     if (this.initialized) {
       // Track detected devices
       if (edgeTpuInitialized) this.detectedDevices.push('Google Edge TPU');
@@ -912,26 +1125,26 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
       if (hexagonDspInitialized) this.detectedDevices.push('Qualcomm Hexagon DSP');
       if (maliGpuInitialized) this.detectedDevices.push('ARM Mali GPU');
       if (webnnInitialized) this.detectedDevices.push('WebNN');
-      
+
       // Gather capabilities
       await this.refreshCapabilities();
-      
+
       console.log('Mobile and Embedded acceleration provider initialized successfully');
       console.log('Detected devices:', this.detectedDevices);
       console.log('Capabilities:', this.capabilities);
     } else {
       console.log('Failed to initialize Mobile and Embedded acceleration provider');
     }
-    
+
     return this.initialized;
   }
-  
+
   /**
    * Refresh capabilities
    */
   private async refreshCapabilities(): Promise<void> {
     this.capabilities = [];
-    
+
     try {
       if (await this.edgeTpu.initialize()) {
         // Add Edge TPU capability
@@ -941,10 +1154,10 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
           supported: true,
           performanceScore: 6000, // Good for mobile/edge inference
           powerEfficiency: 95, // Very power efficient
-          preferenceRank: 1 // Best for mobile/edge inference
+          preferenceRank: 1, // Best for mobile/edge inference
         });
       }
-      
+
       if (await this.rockchipNpu.initialize()) {
         // Add Rockchip NPU capability
         this.capabilities.push({
@@ -953,25 +1166,22 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
           supported: true,
           performanceScore: 5000,
           powerEfficiency: 90,
-          preferenceRank: 2
+          preferenceRank: 2,
         });
       }
-      
+
       if (await this.hexagonDsp.initialize()) {
         // Add Hexagon DSP capability
         this.capabilities.push({
           platform: AccelerationPlatform.QUALCOMM_DSP,
-          taskTypes: [
-            AccelerationTaskType.INFERENCE,
-            AccelerationTaskType.IMAGE_PROCESSING
-          ],
+          taskTypes: [AccelerationTaskType.INFERENCE, AccelerationTaskType.IMAGE_PROCESSING],
           supported: true,
           performanceScore: 5500,
           powerEfficiency: 85,
-          preferenceRank: 2
+          preferenceRank: 2,
         });
       }
-      
+
       if (await this.maliGpu.initialize()) {
         // Add Mali GPU capability
         this.capabilities.push({
@@ -979,15 +1189,15 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
           taskTypes: [
             AccelerationTaskType.INFERENCE,
             AccelerationTaskType.IMAGE_PROCESSING,
-            AccelerationTaskType.VIDEO_SCALING
+            AccelerationTaskType.VIDEO_SCALING,
           ],
           supported: true,
           performanceScore: 7000,
           powerEfficiency: 70, // Less power efficient than dedicated accelerators
-          preferenceRank: 3
+          preferenceRank: 3,
         });
       }
-      
+
       if (await this.webnn.initialize()) {
         // Add WebNN capability
         this.capabilities.push({
@@ -996,14 +1206,14 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
           supported: true,
           performanceScore: 4000, // Varies widely depending on browser/hardware
           powerEfficiency: 60, // Browser-based, less efficient
-          preferenceRank: 4
+          preferenceRank: 4,
         });
       }
     } catch (error) {
       console.error('Error refreshing Mobile and Embedded capabilities:', error);
     }
   }
-  
+
   /**
    * Get provider capabilities
    */
@@ -1011,24 +1221,26 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
     if (!this.initialized) {
       throw new Error('Mobile and Embedded acceleration provider not initialized');
     }
-    
+
     return this.capabilities;
   }
-  
+
   /**
    * Execute an acceleration task
    */
-  async executeTask<TInput, TOutput>(task: AccelerationTask<TInput, TOutput>): Promise<AccelerationResult<TOutput>> {
+  async executeTask<TInput, TOutput>(
+    task: AccelerationTask<TInput, TOutput>
+  ): Promise<AccelerationResult<TOutput>> {
     if (!this.initialized) {
       throw new Error('Mobile and Embedded acceleration provider not initialized');
     }
-    
+
     const startTime = Date.now();
     let platform: AccelerationPlatform = AccelerationPlatform.CPU; // Default to CPU initially
     let success = false;
     let output: TOutput;
     let error: string | undefined;
-    
+
     try {
       // Determine which platform to use
       if (task.preferredPlatform) {
@@ -1037,49 +1249,49 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
         // Choose the best platform for the task
         platform = this.selectBestPlatformForTask(task.type);
       }
-      
+
       // Execute the task based on platform and type
       switch (platform) {
         case AccelerationPlatform.GOOGLE_TPU:
-          output = await this.executeEdgeTpuTask(task.input) as TOutput;
+          output = (await this.executeEdgeTpuTask(task.input)) as TOutput;
           break;
-          
+
         case AccelerationPlatform.ROCKCHIP_NPU:
-          output = await this.executeRockchipNpuTask(task.input) as TOutput;
+          output = (await this.executeRockchipNpuTask(task.input)) as TOutput;
           break;
-          
+
         case AccelerationPlatform.QUALCOMM_DSP:
-          output = await this.executeHexagonDspTask(task.input) as TOutput;
+          output = (await this.executeHexagonDspTask(task.input)) as TOutput;
           break;
-          
+
         case AccelerationPlatform.ARM_MALI:
-          output = await this.executeMaliGpuTask(task.input, task.type) as TOutput;
+          output = (await this.executeMaliGpuTask(task.input, task.type)) as TOutput;
           break;
-          
+
         case AccelerationPlatform.WEBNN:
-          output = await this.executeWebNNTask(task.input) as TOutput;
+          output = (await this.executeWebNNTask(task.input)) as TOutput;
           break;
-          
+
         default:
           throw new Error(`Unsupported platform: ${platform}`);
       }
-      
+
       success = true;
     } catch (e) {
       const err = e as Error;
       error = err.message;
       success = false;
-      
+
       // Default platform if not determined
       platform = platform || AccelerationPlatform.CPU;
-      
+
       // Provide a default output for error cases
       output = null as unknown as TOutput;
     }
-    
+
     const endTime = Date.now();
     const executionTimeMs = endTime - startTime;
-    
+
     // Update statistics
     this.stats.totalTasks++;
     if (success) {
@@ -1092,35 +1304,35 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
       platform,
       type: task.type,
       success,
-      executionTimeMs
+      executionTimeMs,
     });
-    
+
     // Trim history if it gets too large
     if (this.stats.taskHistory.length > 1000) {
       this.stats.taskHistory = this.stats.taskHistory.slice(-1000);
     }
-    
+
     return {
       output,
       platformUsed: platform,
       executionTimeMs,
       success,
-      error
+      error,
     };
   }
-  
+
   /**
    * Select best platform for a task
    */
   private selectBestPlatformForTask(taskType: AccelerationTaskType): AccelerationPlatform {
     // Filter capabilities by task type
     const suitableCapabilities = this.capabilities.filter(cap => cap.taskTypes.includes(taskType));
-    
+
     if (suitableCapabilities.length === 0) {
       // Fall back to CPU if no suitable accelerator
       return AccelerationPlatform.CPU;
     }
-    
+
     // Sort by preference rank (lower is better)
     suitableCapabilities.sort((a, b) => {
       if (a.preferenceRank !== undefined && b.preferenceRank !== undefined) {
@@ -1128,39 +1340,39 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
       }
       return 0;
     });
-    
+
     // Return the platform with the best rank
     return suitableCapabilities[0].platform;
   }
-  
+
   /**
    * Execute an Edge TPU inference task
    */
   private async executeEdgeTpuTask(input: any): Promise<any> {
     const { modelPath, inputData } = input;
-    
+
     // Load model
     const modelHandle = await this.edgeTpu.loadModel(modelPath);
-    
+
     try {
       // Allocate buffers
       const buffers = await this.edgeTpu.allocateBuffers(modelHandle);
-      
+
       try {
         // Set input data
         for (const [name, data] of Object.entries(inputData)) {
           await this.edgeTpu.setInputTensor(buffers, name, data as ArrayBuffer);
         }
-        
+
         // Run inference
         await this.edgeTpu.runInference(modelHandle, buffers);
-        
+
         // Get output data
         const outputs: Record<string, ArrayBuffer> = {};
         for (const name of Object.keys(buffers).filter(k => !Object.keys(inputData).includes(k))) {
           outputs[name] = await this.edgeTpu.getOutputTensor(buffers, name);
         }
-        
+
         return { outputs };
       } finally {
         // Free buffers
@@ -1171,35 +1383,35 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
       await this.edgeTpu.unloadModel(modelHandle);
     }
   }
-  
+
   /**
    * Execute a Rockchip NPU inference task
    */
   private async executeRockchipNpuTask(input: any): Promise<any> {
     const { modelPath, inputData, options } = input;
-    
+
     // Load model
     const modelHandle = await this.rockchipNpu.loadModel(modelPath, options);
-    
+
     try {
       // Allocate buffers
       const buffers = await this.rockchipNpu.allocateBuffers(modelHandle);
-      
+
       try {
         // Set input data
         for (const [name, data] of Object.entries(inputData)) {
           await this.rockchipNpu.setInputTensor(buffers, name, data as ArrayBuffer);
         }
-        
+
         // Run inference
         await this.rockchipNpu.runInference(modelHandle, buffers);
-        
+
         // Get output data
         const outputs: Record<string, ArrayBuffer> = {};
         for (const name of Object.keys(buffers).filter(k => !Object.keys(inputData).includes(k))) {
           outputs[name] = await this.rockchipNpu.getOutputTensor(buffers, name);
         }
-        
+
         return { outputs };
       } finally {
         // Free buffers
@@ -1210,42 +1422,42 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
       await this.rockchipNpu.unloadModel(modelHandle);
     }
   }
-  
+
   /**
    * Execute a Hexagon DSP task
    */
   private async executeHexagonDspTask(input: any): Promise<any> {
     const { modelPath, inputData, options, vectorKernel } = input;
-    
+
     // If it's a vector kernel operation
     if (vectorKernel) {
       await this.hexagonDsp.executeVectorKernel(vectorKernel.name, vectorKernel.args);
       return { status: 'success' };
     }
-    
+
     // Otherwise it's a model inference task
     // Load model
     const modelHandle = await this.hexagonDsp.loadModel(modelPath, options);
-    
+
     try {
       // Allocate buffers
       const buffers = await this.hexagonDsp.allocateBuffers(modelHandle);
-      
+
       try {
         // Set input data
         for (const [name, data] of Object.entries(inputData)) {
           await this.hexagonDsp.setInputTensor(buffers, name, data as ArrayBuffer);
         }
-        
+
         // Run inference
         await this.hexagonDsp.runInference(modelHandle, buffers);
-        
+
         // Get output data
         const outputs: Record<string, ArrayBuffer> = {};
         for (const name of Object.keys(buffers).filter(k => !Object.keys(inputData).includes(k))) {
           outputs[name] = await this.hexagonDsp.getOutputTensor(buffers, name);
         }
-        
+
         return { outputs };
       } finally {
         // Free buffers
@@ -1256,21 +1468,25 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
       await this.hexagonDsp.unloadModel(modelHandle);
     }
   }
-  
+
   /**
    * Execute a Mali GPU task
    */
   private async executeMaliGpuTask(input: any, taskType: AccelerationTaskType): Promise<any> {
     const { image, params } = input;
-    
+
     // Allocate device memory
     const inputPtr = await this.maliGpu.allocateMemory(image.byteLength);
     const outputPtr = await this.maliGpu.allocateMemory(image.byteLength);
-    
+
     try {
       // Copy input to device
-      await this.maliGpu.copyHostToDevice(image instanceof ArrayBuffer ? image : new ArrayBuffer(0), inputPtr, image.byteLength);
-      
+      await this.maliGpu.copyHostToDevice(
+        image instanceof ArrayBuffer ? image : new ArrayBuffer(0),
+        inputPtr,
+        image.byteLength
+      );
+
       // Execute appropriate kernel based on task type
       switch (taskType) {
         case AccelerationTaskType.IMAGE_PROCESSING:
@@ -1285,16 +1501,16 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
         default:
           throw new Error(`Unsupported task type for Mali GPU: ${taskType}`);
       }
-      
+
       // Synchronize
       await this.maliGpu.synchronize();
-      
+
       // Copy output from device
       const outputBuffer = new ArrayBuffer(image.byteLength);
       await this.maliGpu.copyDeviceToHost(outputPtr, outputBuffer, image.byteLength);
-      
+
       return {
-        processedData: outputBuffer
+        processedData: outputBuffer,
       };
     } finally {
       // Free device memory
@@ -1302,46 +1518,52 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
       await this.maliGpu.freeMemory(outputPtr);
     }
   }
-  
+
   /**
    * Execute a WebNN task
    */
   private async executeWebNNTask(input: any): Promise<any> {
     const { modelDefinition, inputData, options } = input;
-    
+
     // Create neural network
     const networkHandle = await this.webnn.createNeuralNetwork(modelDefinition);
-    
+
     try {
       // Create operand descriptors
       const descriptors = await this.webnn.createOperandDescriptors(networkHandle);
-      
+
       // Compile network (with optional compilation options)
       await this.webnn.compileNetwork(networkHandle, options);
-      
+
       // Set input operands
       for (const [name, data] of Object.entries(inputData)) {
         await this.webnn.setInputOperand(networkHandle, name, data as ArrayBuffer);
       }
-      
+
       // Compute network
       await this.webnn.computeNetwork(networkHandle);
-      
+
       // Get output operands
       const outputs: Record<string, ArrayBuffer> = {};
       for (const [name, descriptor] of Object.entries(descriptors)) {
-        if (descriptor.type === 'output') {
+        // Type guard to check if descriptor has the right shape
+        if (
+          descriptor &&
+          typeof descriptor === 'object' &&
+          'type' in descriptor &&
+          descriptor.type === 'output'
+        ) {
           outputs[name] = await this.webnn.getOutputOperand(networkHandle, name);
         }
       }
-      
+
       return { outputs };
     } finally {
       // Release neural network
       await this.webnn.releaseNeuralNetwork(networkHandle);
     }
   }
-  
+
   /**
    * Get provider statistics
    */
@@ -1349,22 +1571,21 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
     if (!this.initialized) {
       throw new Error('Mobile and Embedded acceleration provider not initialized');
     }
-    
+
     // Calculate averages
-    const averageExecutionTimeMs = this.stats.totalTasks > 0
-      ? this.stats.totalExecutionTimeMs / this.stats.totalTasks
-      : 0;
-    
+    const averageExecutionTimeMs =
+      this.stats.totalTasks > 0 ? this.stats.totalExecutionTimeMs / this.stats.totalTasks : 0;
+
     // Get random values for demo purposes
     // In a real implementation, these would come from device-specific APIs
     const deviceUtilization = Math.random() * 0.7 + 0.1; // 10-80% utilization
     const currentTemperature = 35 + Math.random() * 20; // 35-55°C
     const throttling = currentTemperature > 50;
-    
+
     // Get the most recently used platform, or default to Edge TPU
     const recentTask = this.stats.taskHistory[this.stats.taskHistory.length - 1];
     const platform = recentTask ? recentTask.platform : AccelerationPlatform.GOOGLE_TPU;
-    
+
     return {
       platform,
       totalTasks: this.stats.totalTasks,
@@ -1374,20 +1595,20 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
       uptime: (Date.now() - this.stats.startTime) / 1000,
       deviceUtilization,
       currentTemperature,
-      throttling
+      throttling,
     };
   }
-  
+
   /**
    * Clean up resources
    */
   async shutdown(): Promise<void> {
     console.log('Shutting down Mobile and Embedded acceleration provider...');
-    
+
     // Nothing to do for mock implementations
     this.initialized = false;
     this.detectedDevices = [];
-    
+
     console.log('Mobile and Embedded acceleration provider shut down');
   }
 }
