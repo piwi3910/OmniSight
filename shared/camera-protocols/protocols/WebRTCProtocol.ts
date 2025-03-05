@@ -103,11 +103,8 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
 
   /**
    * WebSocket server for signaling
-   * Using any type due to complexity with the WebSocket library's type definitions
-   * A more specific type would require significant refactoring
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private signalingServer: any = null;
+  private signalingServer: WebSocket.Server | null = null;
 
   /**
    * WebSocket connections by client ID
@@ -724,8 +721,7 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
    *
    * @param options Protocol options
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  public async setProtocolOptions(options: Record<string, any>): Promise<void> {
+  public async setProtocolOptions(options: Record<string, unknown>): Promise<void> {
     // Update ICE servers if provided
     if (options.iceServers && Array.isArray(options.iceServers)) {
       if (this.config && !this.config.webrtcConfig) {
@@ -761,8 +757,17 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
 
     // Update stream profiles if provided
     if (options.profiles && Array.isArray(options.profiles)) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      this.streamProfiles = options.profiles.map((p: any) => ({
+      interface ProfileInput {
+        id?: string;
+        name?: string;
+        encoding?: string;
+        resolution?: { width?: number; height?: number };
+        frameRate?: number;
+        bitrate?: number;
+        parameters?: Record<string, unknown>;
+      }
+
+      this.streamProfiles = (options.profiles as ProfileInput[]).map(p => ({
         id: p.id || 'default',
         name: p.name || 'Default Profile',
         encoding: p.encoding || 'h264',
@@ -1145,7 +1150,7 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
   /**
    * Move camera (not supported in this implementation)
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
   protected async performMove(_movement: PtzMovement): Promise<void> {
     throw new Error('WebRTC protocol does not support PTZ controls in this implementation');
   }
@@ -1153,7 +1158,7 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
   /**
    * Go to preset (not supported in this implementation)
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
   protected async performGotoPreset(_presetId: string): Promise<void> {
     throw new Error('WebRTC protocol does not support PTZ presets in this implementation');
   }
@@ -1161,7 +1166,7 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
   /**
    * Save preset (not supported in this implementation)
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
   protected async performSavePreset(_presetName: string): Promise<string> {
     throw new Error('WebRTC protocol does not support PTZ presets in this implementation');
   }
@@ -1169,7 +1174,7 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
   /**
    * Subscribe to camera events (not supported in this implementation)
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
   protected async performSubscribeToEvents(_eventTypes: string[]): Promise<string> {
     throw new Error('WebRTC protocol does not support event subscription in this implementation');
   }
@@ -1177,7 +1182,7 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
   /**
    * Unsubscribe from camera events (not supported in this implementation)
    */
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
   protected async performUnsubscribeFromEvents(_subscriptionId: string): Promise<void> {
     throw new Error('WebRTC protocol does not support event subscription in this implementation');
   }
