@@ -396,6 +396,121 @@ This document outlines the implementation plan for completing the OmniSight vide
 - [x] Create hardware-specific parameter tuning
 - [x] Add automatic fallback for algorithm selection
 
+### Phase 10: Comprehensive Testing Framework ⬜
+
+#### 10.1 Unit Testing Framework ⬜
+
+- [ ] Set up Jest testing framework across all services
+- [ ] Implement test utilities and mocks for common dependencies
+- [ ] Create standardized test patterns and practices guide
+- [ ] Add code coverage requirements and reporting
+- [ ] Implement snapshot testing for critical components
+- [ ] Create test data generators for consistent test scenarios
+- [ ] Add CI pipeline integration for automated test execution
+- [ ] Create pre-commit hooks for running tests on changed code
+
+#### 10.2 Stream Ingestion Service Tests ⬜
+
+- [ ] Unit tests for stream connection manager
+- [ ] Unit tests for RTSP/RTMP protocol handlers
+- [ ] Unit tests for frame processing pipeline
+- [ ] Unit tests for stream health monitoring
+- [ ] Unit tests for reconnection logic
+- [ ] Integration tests for camera connection workflows
+- [ ] Integration tests for frame distribution to other services
+- [ ] Integration tests for stream status reporting
+- [ ] Performance tests for multiple concurrent streams
+- [ ] Stress tests for connection handling under network instability
+
+#### 10.3 Recording Service Tests ⬜
+
+- [ ] Unit tests for recording manager
+- [ ] Unit tests for segment creation and management
+- [ ] Unit tests for storage allocation and cleanup
+- [ ] Unit tests for thumbnail generation
+- [ ] Unit tests for metadata handling
+- [ ] Integration tests for recording lifecycle (start, stop, pause)
+- [ ] Integration tests for segment retrieval and playback
+- [ ] Integration tests for retention policy enforcement
+- [ ] Performance tests for concurrent recording operations
+- [ ] Stress tests for high-volume recording scenarios
+
+#### 10.4 Object Detection Service Tests ⬜
+
+- [ ] Unit tests for detection manager
+- [ ] Unit tests for worker thread pool
+- [ ] Unit tests for model loading and inference
+- [ ] Unit tests for detection algorithms (person, vehicle, etc.)
+- [ ] Unit tests for region of interest filtering
+- [ ] Integration tests for end-to-end detection pipeline
+- [ ] Integration tests for detection event generation
+- [ ] Integration tests for model switching and configuration
+- [ ] Performance tests for detection throughput and latency
+- [ ] Stress tests for high frame rate detection scenarios
+
+#### 10.5 Metadata & Events Service Tests ⬜
+
+- [ ] Unit tests for event storage and retrieval
+- [ ] Unit tests for WebSocket notification system
+- [ ] Unit tests for event filtering and searching
+- [ ] Unit tests for metadata validation and processing
+- [ ] Unit tests for retention policy enforcement
+- [ ] Integration tests for event lifecycle (creation to retrieval)
+- [ ] Integration tests for real-time notifications
+- [ ] Integration tests for advanced search capabilities
+- [ ] Performance tests for high-volume event processing
+- [ ] Stress tests for concurrent event generation and querying
+
+#### 10.6 API Gateway Service Tests ⬜
+
+- [ ] Unit tests for authentication middleware
+- [ ] Unit tests for route handling and proxying
+- [ ] Unit tests for request validation
+- [ ] Unit tests for error handling
+- [ ] Unit tests for rate limiting
+- [ ] Integration tests for end-to-end request flows
+- [ ] Integration tests for authentication flows
+- [ ] Integration tests for WebSocket proxying
+- [ ] Performance tests for request throughput
+- [ ] Stress tests for high concurrency scenarios
+
+#### 10.7 Frontend Application Tests ⬜
+
+- [ ] Unit tests for React components
+- [ ] Unit tests for Redux state management
+- [ ] Unit tests for utility functions
+- [ ] Unit tests for API client layer
+- [ ] Unit tests for form validation
+- [ ] Integration tests for critical user flows
+- [ ] Integration tests for video player functionality
+- [ ] Integration tests for multi-camera grid
+- [ ] End-to-end tests for authentication flows
+- [ ] End-to-end tests for camera management
+- [ ] End-to-end tests for recording playback
+- [ ] End-to-end tests for event browsing and filtering
+
+#### 10.8 Cross-Service Integration Tests ⬜
+
+- [ ] End-to-end tests for camera addition to recording
+- [ ] End-to-end tests for recording to event detection
+- [ ] End-to-end tests for event notification to frontend display
+- [ ] End-to-end tests for search functionality across services
+- [ ] End-to-end tests for user permission enforcement
+- [ ] End-to-end tests for hardware acceleration configuration
+- [ ] Performance tests for complete system under load
+- [ ] Stress tests for system stability under extended operation
+
+#### 10.9 Automated Test Infrastructure ⬜
+
+- [ ] Set up continuous integration pipeline for all tests
+- [ ] Implement automated test environment provisioning
+- [ ] Create test data management system
+- [ ] Implement test result reporting and visualization
+- [ ] Add performance regression detection
+- [ ] Create test coverage reporting and enforcement
+- [ ] Implement scheduled test executions for stability monitoring
+- [ ] Add fault injection testing for resilience verification
+
 ## Detailed Implementation Notes
 
 ### Stream Processing Pipeline
@@ -404,9 +519,9 @@ The Stream Ingestion Service now provides:
 
 ```
 RTSP Camera → Stream Ingestion Service → RabbitMQ → [Recording Service, Object Detection]
-                       ↓                                ↓
-              Health Monitoring,               Frame Processing,
-              Auto-reconnection                Event Generation
+                        ↓                                ↓
+               Health Monitoring,               Frame Processing,
+               Auto-reconnection                Event Generation
 ```
 
 Key features implemented:
@@ -422,10 +537,10 @@ The recording flow now works as follows:
 
 ```
 Video Frames → Recording Service → File Storage
-                      ↓                  ↓
-               Segment Creation     Metadata Storage
-                      ↓
-             Thumbnail Generation
+                       ↓                  ↓
+                Segment Creation     Metadata Storage
+                       ↓
+              Thumbnail Generation
 ```
 
 Key features implemented:
@@ -440,7 +555,7 @@ Key features implemented:
 
 ```
 Video Frame → Worker Thread → TensorFlow.js → Object Detection → Event Generation → 
-        ↓                                                               ↓
+         ↓                                                               ↓
 Thumbnail Generation                                           Database Storage → WebSocket Notification
 ```
 
@@ -783,6 +898,7 @@ Core components implemented:
 | Week 11 | Hardware Acceleration 1 | Acceleration framework ✅, NVIDIA ✅ and Intel ✅ support | ✅ Complete |
 | Week 12 | Hardware Acceleration 2 | AMD ✅, Mobile NPUs ✅, Cross-platform optimization ✅ | ✅ Complete |
 | Week 13 | Frontend Hardware Acceleration UI | Hardware acceleration settings UI, API documentation | ✅ Complete |
+| Week 14 | Comprehensive Testing | Unit and integration testing for all services | ⬜ Not Started |
 
 ## Future Enhancements
 
