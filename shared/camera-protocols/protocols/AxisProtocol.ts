@@ -17,11 +17,16 @@ import { parseStringPromise } from 'xml2js';
  */
 export class AxisProtocol extends AbstractCameraProtocol {
   private axiosInstance: AxiosInstance;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private deviceInfo: any = null;
+  private deviceInfo: Record<string, string> = {};
   private logger: Logger;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private subscriptions: Map<string, any> = new Map();
+
+  private subscriptions: Map<
+    string,
+    {
+      eventTypes: string[];
+      ruleName: string;
+    }
+  > = new Map();
 
   // Protocol identification
   get protocolId(): string {
@@ -440,8 +445,7 @@ export class AxisProtocol extends AbstractCameraProtocol {
         // Format: presetposno=X presetposname="Name"
         const match = line.match(/presetposno=(\d+)\s+presetposname="([^"]+)"/);
         if (match) {
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const [_, id, name] = match;
+          const [, id, name] = match;
           presets.push({
             id,
             name,
@@ -462,8 +466,10 @@ export class AxisProtocol extends AbstractCameraProtocol {
   /**
    * Create a new camera preset
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
-  async createPreset(name: string, position?: any): Promise<CameraPreset | null> {
+  async createPreset(
+    name: string,
+    position?: { pan?: number; tilt?: number; zoom?: number }
+  ): Promise<CameraPreset | null> {
     if (!this.capabilities.ptz) {
       this.logger.warn('Camera does not support presets', { cameraId: this.metadata.id });
       return null;
@@ -676,8 +682,11 @@ export class AxisProtocol extends AbstractCameraProtocol {
   /**
    * Start recording on the camera (if supported)
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
-  async startRecording(options?: any): Promise<boolean> {
+  async startRecording(options?: {
+    duration?: number;
+    profile?: string;
+    storage?: string;
+  }): Promise<boolean> {
     try {
       const response = await this.axiosInstance.get('/axis-cgi/record.cgi?action=start');
       return response.status === 200;
@@ -725,8 +734,7 @@ export class AxisProtocol extends AbstractCameraProtocol {
   /**
    * Update camera settings
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async updateSettings(settings: any): Promise<boolean> {
+  async updateSettings(settings: Record<string, string | number | boolean>): Promise<boolean> {
     try {
       const params = new URLSearchParams();
       params.append('action', 'update');
