@@ -1,5 +1,4 @@
 import { Server as SocketIOServer, Socket } from 'socket.io';
-import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Standard event types for WebSocket communication
@@ -13,7 +12,7 @@ export enum EventType {
   SYSTEM_NOTIFICATION = 'system_notification',
   ERROR = 'error',
   HEARTBEAT = 'heartbeat',
-  HEARTBEAT_ACK = 'heartbeat_ack'
+  HEARTBEAT_ACK = 'heartbeat_ack',
 }
 
 /**
@@ -24,7 +23,16 @@ export enum ChannelType {
   SYSTEM_EVENTS = 'system_events',
   RECORDING_EVENTS = 'recording_events',
   DETECTION_EVENTS = 'detection_events',
-  ALL_EVENTS = 'all_events'
+  ALL_EVENTS = 'all_events',
+}
+
+/**
+ * Logger interface
+ */
+export interface Logger {
+  info: (message: string, ...args: unknown[]) => void;
+  error: (message: string, ...args: unknown[]) => void;
+  debug: (message: string, ...args: unknown[]) => void;
 }
 
 /**
@@ -33,7 +41,7 @@ export enum ChannelType {
 export interface WebSocketEvent {
   type: string;
   timestamp: string;
-  data: any;
+  data: Record<string, unknown>;
 }
 
 /**
@@ -46,6 +54,13 @@ export interface SubscriptionData {
 }
 
 /**
+ * HTTP server type
+ * This represents a Node.js HTTP/HTTPS server instance or compatible server
+ */
+
+export type HttpServer = unknown;
+
+/**
  * Options for WebSocket manager
  */
 export interface WebSocketManagerOptions {
@@ -53,7 +68,7 @@ export interface WebSocketManagerOptions {
    * JWT secret for authentication
    */
   jwtSecret?: string;
-  
+
   /**
    * CORS options
    */
@@ -61,16 +76,16 @@ export interface WebSocketManagerOptions {
     origin: string | string[];
     methods?: string[];
   };
-  
+
   /**
    * Authentication handler
    */
   authHandler?: (socket: Socket, next: (err?: Error) => void) => void;
-  
+
   /**
    * Logger instance
    */
-  logger?: any;
+  logger?: Logger;
 }
 
 /**
@@ -78,40 +93,37 @@ export interface WebSocketManagerOptions {
  */
 export class WebSocketManager {
   private io: SocketIOServer;
-  private logger: any;
+  private logger: Logger;
   private connectedClients: Map<string, Socket> = new Map();
-  
+
   /**
    * Create a new WebSocket manager
    */
-  constructor(
-    server: any,
-    options: WebSocketManagerOptions = {}
-  ) {
+  constructor(server: HttpServer, options: WebSocketManagerOptions = {}) {
     // Create Socket.IO server
     this.io = new SocketIOServer(server, {
       cors: options.cors || {
         origin: '*',
-        methods: ['GET', 'POST']
-      }
+        methods: ['GET', 'POST'],
+      },
     });
-    
+
     // Store logger or create noop logger
     this.logger = options.logger || {
       info: () => {},
       error: () => {},
-      debug: () => {}
+      debug: () => {},
     };
-    
+
     // Set up authentication if provided
     if (options.authHandler) {
       this.io.use(options.authHandler);
     }
-    
+
     // Set up default connection handler
     this.setupConnectionHandler();
   }
-  
+
   /**
    * Set up connection handler for WebSocket
    */
@@ -119,45 +131,45 @@ export class WebSocketManager {
     this.io.on('connection', (socket: Socket) => {
       const clientId = socket.id;
       this.connectedClients.set(clientId, socket);
-      
+
       // Log connection
       this.logger.info(`Client connected: ${clientId}`);
-      
+
       // Handle subscription
       socket.on(EventType.SUBSCRIBE, (data: SubscriptionData) => {
         this.handleSubscribe(socket, data);
       });
-      
+
       // Handle unsubscription
       socket.on(EventType.UNSUBSCRIBE, (data: SubscriptionData) => {
         this.handleUnsubscribe(socket, data);
       });
-      
+
       // Handle heartbeat
       socket.on(EventType.HEARTBEAT, () => {
         this.handleHeartbeat(socket);
       });
-      
+
       // Handle disconnect
       socket.on('disconnect', () => {
         this.handleDisconnect(socket);
       });
     });
   }
-  
+
   /**
    * Handle subscribe event
    */
   private handleSubscribe(socket: Socket, data: SubscriptionData): void {
     this.logger.info(`Client ${socket.id} subscribed to: ${JSON.stringify(data)}`);
-    
+
     if (!data.channel) {
       this.sendError(socket, 'Channel is required for subscription');
       return;
     }
-    
+
     let room = data.channel;
-    
+
     // Handle different channel types
     switch (data.channel) {
       case ChannelType.CAMERA_EVENTS:
@@ -167,7 +179,7 @@ export class WebSocketManager {
         }
         room = `camera:${data.cameraId}`;
         break;
-        
+
       case ChannelType.RECORDING_EVENTS:
         if (!data.recordingId) {
           this.sendError(socket, 'Recording ID is required for recording_events subscription');
@@ -176,31 +188,31 @@ export class WebSocketManager {
         room = `recording:${data.recordingId}`;
         break;
     }
-    
+
     // Join the room
     socket.join(room);
-    
+
     // Acknowledge subscription
     socket.emit(EventType.EVENT, {
       type: 'subscription_success',
       timestamp: new Date().toISOString(),
-      data: { channel: data.channel, room }
+      data: { channel: data.channel, room },
     });
   }
-  
+
   /**
    * Handle unsubscribe event
    */
   private handleUnsubscribe(socket: Socket, data: SubscriptionData): void {
     this.logger.info(`Client ${socket.id} unsubscribed from: ${JSON.stringify(data)}`);
-    
+
     if (!data.channel) {
       this.sendError(socket, 'Channel is required for unsubscription');
       return;
     }
-    
+
     let room = data.channel;
-    
+
     // Handle different channel types
     switch (data.channel) {
       case ChannelType.CAMERA_EVENTS:
@@ -210,7 +222,7 @@ export class WebSocketManager {
         }
         room = `camera:${data.cameraId}`;
         break;
-        
+
       case ChannelType.RECORDING_EVENTS:
         if (!data.recordingId) {
           this.sendError(socket, 'Recording ID is required for recording_events unsubscription');
@@ -219,27 +231,27 @@ export class WebSocketManager {
         room = `recording:${data.recordingId}`;
         break;
     }
-    
+
     // Leave the room
     socket.leave(room);
-    
+
     // Acknowledge unsubscription
     socket.emit(EventType.EVENT, {
       type: 'unsubscription_success',
       timestamp: new Date().toISOString(),
-      data: { channel: data.channel, room }
+      data: { channel: data.channel, room },
     });
   }
-  
+
   /**
    * Handle heartbeat event
    */
   private handleHeartbeat(socket: Socket): void {
     socket.emit(EventType.HEARTBEAT_ACK, {
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     });
   }
-  
+
   /**
    * Handle disconnect event
    */
@@ -247,7 +259,7 @@ export class WebSocketManager {
     this.logger.info(`Client disconnected: ${socket.id}`);
     this.connectedClients.delete(socket.id);
   }
-  
+
   /**
    * Send an error to a client
    */
@@ -255,71 +267,79 @@ export class WebSocketManager {
     socket.emit(EventType.ERROR, {
       type: EventType.ERROR,
       timestamp: new Date().toISOString(),
-      data: { message }
+      data: { message },
     });
   }
-  
+
   /**
    * Broadcast an event to all clients in a room
    */
-  public broadcastToRoom(room: string, eventType: string, data: any): void {
+  public broadcastToRoom(room: string, eventType: string, data: Record<string, unknown>): void {
     const event: WebSocketEvent = {
       type: eventType,
       timestamp: new Date().toISOString(),
-      data
+      data,
     };
-    
+
     this.io.to(room).emit(EventType.EVENT, event);
     this.logger.debug(`Broadcast to room ${room}: ${JSON.stringify(event)}`);
   }
-  
+
   /**
    * Broadcast camera event to subscribers
    */
-  public broadcastCameraEvent(cameraId: string, eventType: string, data: any): void {
+  public broadcastCameraEvent(
+    cameraId: string,
+    eventType: string,
+    data: Record<string, unknown>
+  ): void {
     this.broadcastToRoom(`camera:${cameraId}`, eventType, data);
   }
-  
+
   /**
    * Broadcast recording event to subscribers
    */
-  public broadcastRecordingEvent(recordingId: string, eventType: string, data: any): void {
+  public broadcastRecordingEvent(
+    recordingId: string,
+    eventType: string,
+    data: Record<string, unknown>
+  ): void {
     this.broadcastToRoom(`recording:${recordingId}`, eventType, data);
   }
-  
+
   /**
    * Broadcast system event to all clients
    */
-  public broadcastSystemEvent(eventType: string, data: any): void {
+  public broadcastSystemEvent(eventType: string, data: Record<string, unknown>): void {
     const event: WebSocketEvent = {
       type: eventType,
       timestamp: new Date().toISOString(),
-      data
+      data,
     };
-    
+
     this.io.emit(EventType.SYSTEM_NOTIFICATION, event);
     this.logger.debug(`System broadcast: ${JSON.stringify(event)}`);
   }
-  
+
   /**
    * Get the number of connected clients
    */
   public getClientCount(): number {
     return this.connectedClients.size;
   }
-  
+
   /**
    * Get the Socket.IO server instance
    */
   public getServer(): SocketIOServer {
     return this.io;
   }
-  
+
   /**
    * Close the WebSocket server
    */
   public close(): Promise<void> {
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       this.io.close(() => {
         this.logger.info('WebSocket server closed');
         resolve();
@@ -332,7 +352,7 @@ export class WebSocketManager {
  * Create a WebSocket manager instance
  */
 export function createWebSocketManager(
-  server: any,
+  server: HttpServer,
   options: WebSocketManagerOptions = {}
 ): WebSocketManager {
   return new WebSocketManager(server, options);
