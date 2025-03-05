@@ -738,9 +738,8 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
         this.config.webrtcConfig.iceServers = options.iceServers;
 
         // Attempt to extract TURN server info for backward compatibility
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const turnServer = options.iceServers.find(
-          (s: any) =>
+          (s: { urls: string | string[]; username?: string; credential?: string }) =>
             s.urls &&
             ((typeof s.urls === 'string' && s.urls.startsWith('turn:')) ||
               (Array.isArray(s.urls) && s.urls.some((url: string) => url.startsWith('turn:'))))
