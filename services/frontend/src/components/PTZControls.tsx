@@ -1,444 +1,312 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Card, IconButton, Box, TextField, Dialog, DialogTitle, DialogContent, DialogActions, Grid, List, ListItem, ListItemText, ListItemSecondaryAction, Typography, Slider, Tooltip } from '@mui/material';
-import { 
-  ArrowUpward, 
-  ArrowDownward, 
-  ArrowBack, 
-  ArrowForward,
-  AddCircle,
-  RemoveCircle,
-  Speed,
-  Home,
-  Favorite,
-  Add,
-  Delete,
-  PlayCircleFilled,
-  Edit
-} from '@mui/icons-material';
+import {
+  Box,
+  Button,
+  IconButton,
+  Paper,
+  Slider,
+  Typography,
+  Grid,
+  CircularProgress
+} from '@mui/material';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import HomeIcon from '@mui/icons-material/Home';
+import ZoomInIcon from '@mui/icons-material/ZoomIn';
+import ZoomOutIcon from '@mui/icons-material/ZoomOut';
 import axios from 'axios';
-import { useAuth } from '../contexts/AuthContext';
+import { API_BASE_URL } from '../config';
 
-interface PTZPreset {
-  id: string;
-  name: string;
-  cameraId: string;
-  position: {
-    pan: number;
-    tilt: number;
-    zoom: number;
-  };
-  createdAt: string;
-  updatedAt: string;
+// PTZ Movement types
+interface PtzMovement {
+  pan?: number;
+  tilt?: number;
+  zoom?: number;
+  speed?: number;
+  absolute?: boolean;
+  continuous?: boolean;
 }
 
 interface PTZControlsProps {
   cameraId: string;
-  cameraName: string;
-  isPTZCapable: boolean;
+  disabled?: boolean;
+  onError?: (error: string) => void;
 }
 
-const PTZControls: React.FC<PTZControlsProps> = ({ cameraId, cameraName, isPTZCapable }) => {
-  const { token } = useAuth();
-  const [presets, setPresets] = useState<PTZPreset[]>([]);
-  const [speed, setSpeed] = useState<number>(5);
-  const [continuousMove, setContinuousMove] = useState<boolean>(false);
-  const [loading, setLoading] = useState<boolean>(false);
-  const [error, setError] = useState<string | null>(null);
-  const [presetDialogOpen, setPresetDialogOpen] = useState<boolean>(false);
-  const [presetName, setPresetName] = useState<string>('');
+const PTZControls: React.FC<PTZControlsProps> = ({ cameraId, disabled = false, onError }) => {
+  const [loading, setLoading] = useState(false);
+  const [speed, setSpeed] = useState(0.5);
+  const [capabilities, setCapabilities] = useState<{
+    ptz: boolean;
+    presets: boolean;
+  }>({ ptz: false, presets: false });
 
-  // Current position states (would be updated from camera status in real implementation)
-  const [currentPan, setCurrentPan] = useState<number>(0);
-  const [currentTilt, setCurrentTilt] = useState<number>(0);
-  const [currentZoom, setCurrentZoom] = useState<number>(1);
-
-  // Load presets on component mount
+  // Fetch camera capabilities on mount
   useEffect(() => {
-    if (isPTZCapable) {
-      fetchPresets();
-    }
-  }, [cameraId, isPTZCapable]);
-
-  const fetchPresets = async () => {
-    try {
-      setLoading(true);
-      const response = await axios.get(`/api/cameras/${cameraId}/ptz/presets`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setPresets(response.data);
-    } catch (err) {
-      console.error('Error fetching PTZ presets:', err);
-      setError('Failed to load camera presets');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleMove = async (direction: 'up' | 'down' | 'left' | 'right') => {
-    if (!isPTZCapable) return;
-    
-    try {
-      setLoading(true);
-      
-      // Set up movement parameters
-      let pan = 0;
-      let tilt = 0;
-      
-      switch (direction) {
-        case 'up':
-          tilt = speed;
-          break;
-        case 'down':
-          tilt = -speed;
-          break;
-        case 'left':
-          pan = -speed;
-          break;
-        case 'right':
-          pan = speed;
-          break;
+    const fetchCapabilities = async () => {
+      try {
+        const response = await axios.get(`${API_BASE_URL}/protocols/${cameraId}/capabilities`);
+        setCapabilities({
+          ptz: response.data.capabilities.ptz || false,
+          presets: response.data.capabilities.presets || false
+        });
+      } catch (error) {
+        console.error('Error fetching camera capabilities:', error);
+        if (onError) onError('Failed to fetch camera capabilities');
       }
-      
-      await axios.post(`/api/cameras/${cameraId}/ptz/move`, {
-        pan,
-        tilt,
-        zoom: 0, // No zoom change
-        continuous: continuousMove
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      // Update current position (in a real implementation, this would come from camera feedback)
-      if (!continuousMove) {
-        setCurrentPan(prev => Math.max(-100, Math.min(100, prev + pan)));
-        setCurrentTilt(prev => Math.max(-100, Math.min(100, prev + tilt)));
-      }
-    } catch (err) {
-      console.error('Error moving camera:', err);
-      setError('Failed to move camera');
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
 
-  const handleZoom = async (zoomIn: boolean) => {
-    if (!isPTZCapable) return;
-    
-    try {
-      setLoading(true);
-      
-      const zoomValue = zoomIn ? speed : -speed;
-      
-      await axios.post(`/api/cameras/${cameraId}/ptz/move`, {
-        pan: 0,
-        tilt: 0,
-        zoom: zoomValue,
-        continuous: continuousMove
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      // Update current zoom (in a real implementation, this would come from camera feedback)
-      if (!continuousMove) {
-        setCurrentZoom(prev => Math.max(1, Math.min(10, prev + (zoomIn ? 0.5 : -0.5))));
-      }
-    } catch (err) {
-      console.error('Error zooming camera:', err);
-      setError('Failed to zoom camera');
-    } finally {
-      setLoading(false);
+    if (cameraId) {
+      fetchCapabilities();
     }
-  };
+  }, [cameraId, onError]);
 
-  const goToPreset = async (presetId: string) => {
-    if (!isPTZCapable) return;
-    
-    try {
-      setLoading(true);
-      
-      await axios.post(`/api/cameras/${cameraId}/ptz/goto-preset`, {
-        presetId
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      // In a real implementation, we would update the position from camera feedback
-      const preset = presets.find(p => p.id === presetId);
-      if (preset) {
-        setCurrentPan(preset.position.pan);
-        setCurrentTilt(preset.position.tilt);
-        setCurrentZoom(preset.position.zoom);
-      }
-    } catch (err) {
-      console.error('Error moving to preset:', err);
-      setError('Failed to move to preset position');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Execute a PTZ movement
+  const executeMove = async (movement: PtzMovement) => {
+    if (!capabilities.ptz || disabled || loading) return;
 
-  const savePreset = async () => {
-    if (!isPTZCapable || !presetName.trim()) return;
-    
+    setLoading(true);
     try {
-      setLoading(true);
-      
-      const response = await axios.post(`/api/cameras/${cameraId}/ptz/presets`, {
-        name: presetName,
-        position: {
-          pan: currentPan,
-          tilt: currentTilt,
-          zoom: currentZoom
+      await axios.post(`${API_BASE_URL}/protocols/${cameraId}/ptz`, {
+        action: 'move',
+        params: {
+          ...movement,
+          speed
         }
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
       });
-      
-      setPresets([...presets, response.data]);
-      setPresetName('');
-      setPresetDialogOpen(false);
-    } catch (err) {
-      console.error('Error saving preset:', err);
-      setError('Failed to save preset');
+    } catch (error) {
+      console.error('Error executing PTZ command:', error);
+      if (onError) onError('Failed to execute PTZ command');
     } finally {
       setLoading(false);
     }
   };
 
-  const deletePreset = async (presetId: string) => {
-    if (!isPTZCapable) return;
-    
+  // Move the camera in a specific direction
+  const handleMove = (direction: 'up' | 'down' | 'left' | 'right') => {
+    const movement: PtzMovement = { continuous: true };
+
+    switch (direction) {
+      case 'up':
+        movement.tilt = 1;
+        break;
+      case 'down':
+        movement.tilt = -1;
+        break;
+      case 'left':
+        movement.pan = -1;
+        break;
+      case 'right':
+        movement.pan = 1;
+        break;
+    }
+
+    executeMove(movement);
+  };
+
+  // Stop all movement
+  const handleStop = async () => {
+    if (!capabilities.ptz || disabled || loading) return;
+
+    setLoading(true);
     try {
-      setLoading(true);
-      
-      await axios.delete(`/api/cameras/${cameraId}/ptz/presets/${presetId}`, {
-        headers: { Authorization: `Bearer ${token}` }
+      await axios.post(`${API_BASE_URL}/protocols/${cameraId}/ptz`, {
+        action: 'stop'
       });
-      
-      setPresets(presets.filter(p => p.id !== presetId));
-    } catch (err) {
-      console.error('Error deleting preset:', err);
-      setError('Failed to delete preset');
+    } catch (error) {
+      console.error('Error stopping PTZ:', error);
+      if (onError) onError('Failed to stop camera movement');
     } finally {
       setLoading(false);
     }
   };
 
-  const goHome = async () => {
-    if (!isPTZCapable) return;
-    
+  // Zoom in or out
+  const handleZoom = (direction: 'in' | 'out') => {
+    const movement: PtzMovement = {
+      zoom: direction === 'in' ? 1 : -1,
+      continuous: true
+    };
+    executeMove(movement);
+  };
+
+  // Go to home position
+  const handleHome = async () => {
+    if (!capabilities.ptz || disabled || loading) return;
+
+    setLoading(true);
     try {
-      setLoading(true);
-      
-      await axios.post(`/api/cameras/${cameraId}/ptz/home`, {}, {
-        headers: { Authorization: `Bearer ${token}` }
+      await axios.post(`${API_BASE_URL}/protocols/${cameraId}/ptz`, {
+        action: 'home'
       });
-      
-      // Reset position to home
-      setCurrentPan(0);
-      setCurrentTilt(0);
-      setCurrentZoom(1);
-    } catch (err) {
-      console.error('Error moving to home position:', err);
-      setError('Failed to move to home position');
+    } catch (error) {
+      console.error('Error going to home position:', error);
+      if (onError) onError('Failed to go to home position');
     } finally {
       setLoading(false);
     }
   };
 
-  if (!isPTZCapable) {
+  // Handle speed change
+  const handleSpeedChange = (event: Event, newValue: number | number[]) => {
+    setSpeed(newValue as number);
+  };
+
+  if (!capabilities.ptz) {
     return (
-      <Card sx={{ p: 2, mt: 2 }}>
-        <Typography variant="body2" color="text.secondary">
-          This camera does not support PTZ controls
+      <Paper elevation={2} sx={{ p: 2, textAlign: 'center' }}>
+        <Typography variant="body1" color="text.secondary">
+          PTZ control not available for this camera
         </Typography>
-      </Card>
+      </Paper>
     );
   }
 
   return (
-    <Card sx={{ p: 2, mt: 2 }}>
+    <Paper elevation={2} sx={{ p: 2 }}>
       <Typography variant="h6" gutterBottom>
-        PTZ Controls: {cameraName}
+        PTZ Controls {loading && <CircularProgress size={16} sx={{ ml: 1 }} />}
       </Typography>
-      
-      {error && (
-        <Typography color="error" variant="body2" sx={{ mb: 2 }}>
-          {error}
+
+      <Box sx={{ mb: 2 }}>
+        <Typography id="speed-slider" gutterBottom>
+          Speed: {Math.round(speed * 100)}%
         </Typography>
-      )}
-      
-      <Grid container spacing={2}>
-        <Grid item xs={12} md={6}>
-          {/* Movement controls */}
-          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mb: 2 }}>
-            <IconButton 
-              color="primary" 
-              disabled={loading} 
-              onMouseDown={() => handleMove('up')}
-              sx={{ mb: 1 }}
-            >
-              <ArrowUpward />
-            </IconButton>
-            
-            <Box sx={{ display: 'flex', alignItems: 'center' }}>
-              <IconButton 
-                color="primary" 
-                disabled={loading} 
-                onMouseDown={() => handleMove('left')}
-                sx={{ mr: 3 }}
-              >
-                <ArrowBack />
-              </IconButton>
-              
-              <IconButton 
-                color="primary" 
-                disabled={loading} 
-                onClick={goHome}
-              >
-                <Home />
-              </IconButton>
-              
-              <IconButton 
-                color="primary" 
-                disabled={loading} 
-                onMouseDown={() => handleMove('right')}
-                sx={{ ml: 3 }}
-              >
-                <ArrowForward />
-              </IconButton>
-            </Box>
-            
-            <IconButton 
-              color="primary" 
-              disabled={loading} 
-              onMouseDown={() => handleMove('down')}
-              sx={{ mt: 1 }}
-            >
-              <ArrowDownward />
-            </IconButton>
-          </Box>
-          
-          {/* Zoom controls */}
-          <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
-            <IconButton 
-              color="primary" 
-              disabled={loading} 
-              onMouseDown={() => handleZoom(false)}
-            >
-              <RemoveCircle />
-            </IconButton>
-            
-            <Typography variant="body2" sx={{ mx: 2, alignSelf: 'center' }}>
-              Zoom: {currentZoom.toFixed(1)}x
-            </Typography>
-            
-            <IconButton 
-              color="primary" 
-              disabled={loading} 
-              onMouseDown={() => handleZoom(true)}
-            >
-              <AddCircle />
-            </IconButton>
-          </Box>
-          
-          {/* Speed control */}
-          <Box sx={{ px: 3, mb: 2 }}>
-            <Typography id="speed-slider" gutterBottom>
-              Speed: {speed}
-            </Typography>
-            <Grid container spacing={2} alignItems="center">
-              <Grid item>
-                <Speed fontSize="small" />
-              </Grid>
-              <Grid item xs>
-                <Slider
-                  value={speed}
-                  onChange={(_, newValue) => setSpeed(newValue as number)}
-                  aria-labelledby="speed-slider"
-                  min={1}
-                  max={10}
-                  marks
-                />
-              </Grid>
-            </Grid>
-          </Box>
+        <Slider
+          aria-labelledby="speed-slider"
+          value={speed}
+          onChange={handleSpeedChange}
+          min={0.1}
+          max={1}
+          step={0.1}
+          marks
+          disabled={disabled || loading}
+        />
+      </Box>
+
+      <Grid container spacing={1} justifyContent="center" alignItems="center">
+        {/* Empty space */}
+        <Grid item xs={4} />
+        
+        {/* Up button */}
+        <Grid item xs={4} sx={{ textAlign: 'center' }}>
+          <IconButton
+            color="primary"
+            disabled={disabled || loading}
+            onMouseDown={() => handleMove('up')}
+            onMouseUp={handleStop}
+            onMouseLeave={handleStop}
+            onTouchStart={() => handleMove('up')}
+            onTouchEnd={handleStop}
+            size="large"
+          >
+            <ArrowUpwardIcon />
+          </IconButton>
         </Grid>
         
-        <Grid item xs={12} md={6}>
-          {/* Presets section */}
-          <Typography variant="subtitle1" gutterBottom>
-            Camera Presets
-          </Typography>
-          
-          <List dense>
-            {presets.map((preset) => (
-              <ListItem key={preset.id}>
-                <ListItemText
-                  primary={preset.name}
-                  secondary={`Pan: ${preset.position.pan}, Tilt: ${preset.position.tilt}, Zoom: ${preset.position.zoom}x`}
-                />
-                <ListItemSecondaryAction>
-                  <IconButton 
-                    edge="end" 
-                    aria-label="go to preset" 
-                    onClick={() => goToPreset(preset.id)}
-                    disabled={loading}
-                  >
-                    <PlayCircleFilled color="primary" />
-                  </IconButton>
-                  <IconButton 
-                    edge="end" 
-                    aria-label="delete preset" 
-                    onClick={() => deletePreset(preset.id)}
-                    disabled={loading}
-                  >
-                    <Delete color="error" />
-                  </IconButton>
-                </ListItemSecondaryAction>
-              </ListItem>
-            ))}
-          </List>
-          
-          <Button
-            variant="outlined"
-            startIcon={<Add />}
-            onClick={() => setPresetDialogOpen(true)}
-            disabled={loading}
-            fullWidth
-            sx={{ mt: 2 }}
+        {/* Empty space */}
+        <Grid item xs={4} />
+
+        {/* Left button */}
+        <Grid item xs={4} sx={{ textAlign: 'right' }}>
+          <IconButton
+            color="primary"
+            disabled={disabled || loading}
+            onMouseDown={() => handleMove('left')}
+            onMouseUp={handleStop}
+            onMouseLeave={handleStop}
+            onTouchStart={() => handleMove('left')}
+            onTouchEnd={handleStop}
+            size="large"
           >
-            Save Current Position as Preset
-          </Button>
+            <ArrowBackIcon />
+          </IconButton>
+        </Grid>
+
+        {/* Home button */}
+        <Grid item xs={4} sx={{ textAlign: 'center' }}>
+          <IconButton
+            color="secondary"
+            disabled={disabled || loading}
+            onClick={handleHome}
+            size="large"
+          >
+            <HomeIcon />
+          </IconButton>
+        </Grid>
+
+        {/* Right button */}
+        <Grid item xs={4} sx={{ textAlign: 'left' }}>
+          <IconButton
+            color="primary"
+            disabled={disabled || loading}
+            onMouseDown={() => handleMove('right')}
+            onMouseUp={handleStop}
+            onMouseLeave={handleStop}
+            onTouchStart={() => handleMove('right')}
+            onTouchEnd={handleStop}
+            size="large"
+          >
+            <ArrowForwardIcon />
+          </IconButton>
+        </Grid>
+
+        {/* Empty space */}
+        <Grid item xs={4} />
+        
+        {/* Down button */}
+        <Grid item xs={4} sx={{ textAlign: 'center' }}>
+          <IconButton
+            color="primary"
+            disabled={disabled || loading}
+            onMouseDown={() => handleMove('down')}
+            onMouseUp={handleStop}
+            onMouseLeave={handleStop}
+            onTouchStart={() => handleMove('down')}
+            onTouchEnd={handleStop}
+            size="large"
+          >
+            <ArrowDownwardIcon />
+          </IconButton>
+        </Grid>
+        
+        {/* Empty space */}
+        <Grid item xs={4} />
+
+        {/* Zoom controls */}
+        <Grid item xs={6} sx={{ textAlign: 'right' }}>
+          <IconButton
+            color="primary"
+            disabled={disabled || loading}
+            onMouseDown={() => handleZoom('in')}
+            onMouseUp={handleStop}
+            onMouseLeave={handleStop}
+            onTouchStart={() => handleZoom('in')}
+            onTouchEnd={handleStop}
+            size="large"
+          >
+            <ZoomInIcon />
+          </IconButton>
+        </Grid>
+
+        <Grid item xs={6} sx={{ textAlign: 'left' }}>
+          <IconButton
+            color="primary"
+            disabled={disabled || loading}
+            onMouseDown={() => handleZoom('out')}
+            onMouseUp={handleStop}
+            onMouseLeave={handleStop}
+            onTouchStart={() => handleZoom('out')}
+            onTouchEnd={handleStop}
+            size="large"
+          >
+            <ZoomOutIcon />
+          </IconButton>
         </Grid>
       </Grid>
-      
-      {/* Dialog for saving presets */}
-      <Dialog open={presetDialogOpen} onClose={() => setPresetDialogOpen(false)}>
-        <DialogTitle>Save Current Position as Preset</DialogTitle>
-        <DialogContent>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Preset Name"
-            type="text"
-            fullWidth
-            variant="outlined"
-            value={presetName}
-            onChange={(e) => setPresetName(e.target.value)}
-          />
-          <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-            Current Position: Pan: {currentPan}, Tilt: {currentTilt}, Zoom: {currentZoom}x
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPresetDialogOpen(false)}>Cancel</Button>
-          <Button onClick={savePreset} color="primary" disabled={!presetName.trim()}>
-            Save
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </Card>
+    </Paper>
   );
 };
 

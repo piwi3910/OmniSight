@@ -82,6 +82,10 @@ router.use('/segments/storage', authenticate, endpointLimiter, recordingProxy); 
 // Object Detection Service routes
 router.use('/detection', authenticate, endpointLimiter, objectDetectionProxy);
 
+// Camera Protocol routes
+import protocolRoutes from './protocolRoutes';
+router.use('/protocols', protocolRoutes);
+
 // Extension management - For administrators only
 router.post('/extensions', authenticate, authorize(['admin']), endpointLimiter, registerExtension);
 router.get('/extensions', authenticate, authorize(['admin']), endpointLimiter, listExtensions);

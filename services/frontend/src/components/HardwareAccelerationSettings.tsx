@@ -1,23 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import {
   Box,
-  Typography,
+  Button,
   Card,
   CardContent,
+  CardHeader,
+  CircularProgress,
+  Divider,
   FormControl,
   FormControlLabel,
-  Switch,
-  Select,
-  MenuItem,
-  InputLabel,
-  Slider,
+  FormHelperText,
   Grid,
-  Divider,
+  InputLabel,
+  MenuItem,
+  Select,
+  SelectChangeEvent,
+  Switch,
+  Typography,
   Chip,
-  CircularProgress,
-  Button,
-  Alert,
-  Stack,
   Paper,
   Table,
   TableBody,
@@ -26,513 +26,377 @@ import {
   TableHead,
   TableRow
 } from '@mui/material';
-import {
-  Speed as SpeedIcon,
-  BatteryChargingFull as BatteryIcon,
-  Settings as SettingsIcon,
-  Memory as MemoryIcon,
-  SaveAlt as SaveIcon,
-  Refresh as RefreshIcon
-} from '@mui/icons-material';
+import SpeedIcon from '@mui/icons-material/Speed';
+import MemoryIcon from '@mui/icons-material/Memory';
+import DevicesIcon from '@mui/icons-material/Devices';
+import { useSnackbar } from 'notistack';
 import axios from 'axios';
-import { useAuth } from '../contexts/AuthContext';
+import { API_BASE_URL } from '../config';
 
-// Define types for acceleration settings and info
-interface AccelerationInfo {
+interface HardwareDevice {
+  id: string;
+  name: string;
+  type: 'gpu' | 'cpu' | 'tpu' | 'other';
+  vendor: string;
+  capabilities: string[];
+  memory?: number;
+  details?: Record<string, any>;
+}
+
+interface AccelerationProfile {
+  id: string;
+  name: string;
+  description: string;
+  deviceTypes: string[];
+  settings: Record<string, any>;
+}
+
+interface AccelerationConfig {
   enabled: boolean;
-  availablePlatforms: string[];
-  activePlatforms: {
-    inference: string;
-    imageProcessing: string;
-  };
-  deviceInfo: Array<{
-    deviceId: string;
-    platform: string;
-    deviceName: string;
-    memoryTotal: number;
-    memoryFree: number;
-    utilization: number;
-    capabilities: string[];
-  }>;
-  perfPowerBalance: number;
+  defaultDevice?: string;
+  profiles: AccelerationProfile[];
 }
 
-interface AccelerationSettings {
-  enabled: boolean;
-  preferredPlatform: string | null;
-  inferencePlatform: string | null;
-  imageProcessingPlatform: string | null;
-  perfPowerBalance: number;
+interface BenchmarkResult {
+  deviceId: string;
+  deviceName: string;
+  scores: {
+    videoDecoding: number;
+    videoEncoding: number;
+    imageProcessing: number;
+    inferenceSpeed: number;
+    overall: number;
+  };
+  timestamp: string;
 }
 
-interface ModelInfo {
-  path: string;
-  type: string;
-  classes: number;
-  taskTypes: string[];
+interface HardwareAccelerationSettingsProps {
+  admin?: boolean;
+  cameraId?: string;
+  onChange?: (config: any) => void;
 }
 
-const HardwareAccelerationSettings: React.FC = () => {
-  const { token } = useAuth();
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1';
-  
-  // State for hardware acceleration data
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-  const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
-  const [saveError, setSetError] = useState<string | null>(null);
-  
-  // State for hardware acceleration info
-  const [accelerationInfo, setAccelerationInfo] = useState<AccelerationInfo | null>(null);
-  const [modelInfo, setModelInfo] = useState<ModelInfo | null>(null);
-  const [stats, setStats] = useState<{ detectionCount: number; processingCount: number } | null>(null);
-  
-  // State for settings that can be modified
-  const [settings, setSettings] = useState<AccelerationSettings>({
-    enabled: true,
-    preferredPlatform: null,
-    inferencePlatform: null,
-    imageProcessingPlatform: null,
-    perfPowerBalance: 0.5
-  });
-  
-  // Get hardware acceleration info
-  const fetchAccelerationInfo = async () => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const response = await axios.get(`${API_URL}/detection/hardware/acceleration`, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
-      
-      const { acceleration, model, detectionCount, processingCount } = response.data.data;
-      
-      setAccelerationInfo(acceleration);
-      setModelInfo(model);
-      setStats({ detectionCount, processingCount });
-      
-      // Update settings from acceleration info
-      setSettings({
-        enabled: acceleration.enabled,
-        preferredPlatform: null, // This might not be returned in the API
-        inferencePlatform: acceleration.activePlatforms.inference,
-        imageProcessingPlatform: acceleration.activePlatforms.imageProcessing,
-        perfPowerBalance: acceleration.perfPowerBalance
-      });
-      
-      setLoading(false);
-    } catch (err) {
-      console.error('Error fetching hardware acceleration info:', err);
-      setError('Failed to load hardware acceleration information. Please try again later.');
-      setLoading(false);
-    }
-  };
-  
-  // Save settings
-  const saveSettings = async () => {
-    setLoading(true);
-    setSaveSuccess(false);
-    setSetError(null);
-    
-    try {
-      await axios.post(`${API_URL}/detection/hardware/acceleration`, settings, {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
-      });
-      
-      setSaveSuccess(true);
-      setLoading(false);
-      
-      // Refresh data after save
-      fetchAccelerationInfo();
-      
-      // Clear success message after a few seconds
-      setTimeout(() => {
-        setSaveSuccess(false);
-      }, 3000);
-    } catch (err) {
-      console.error('Error saving hardware acceleration settings:', err);
-      setSetError('Failed to save settings. Please try again later.');
-      setLoading(false);
-    }
-  };
-  
-  // Load data on component mount
+const HardwareAccelerationSettings: React.FC<HardwareAccelerationSettingsProps> = ({
+  admin = false,
+  cameraId,
+  onChange
+}) => {
+  const [devices, setDevices] = useState<HardwareDevice[]>([]);
+  const [config, setConfig] = useState<AccelerationConfig>({ enabled: false, profiles: [] });
+  const [selectedDevice, setSelectedDevice] = useState<string>('');
+  const [benchmarkResults, setBenchmarkResults] = useState<BenchmarkResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [benchmarking, setBenchmarking] = useState(false);
+  const { enqueueSnackbar } = useSnackbar();
+
+  // Fetch hardware devices and current configuration
   useEffect(() => {
-    fetchAccelerationInfo();
-  }, [token, API_URL]);
-  
-  // Format memory size to readable format
-  const formatMemory = (memoryMB: number): string => {
-    if (memoryMB >= 1024) {
-      return `${(memoryMB / 1024).toFixed(1)} GB`;
-    }
-    return `${memoryMB} MB`;
-  };
-  
-  // Render platform chip with appropriate color
-  const renderPlatformChip = (platform: string) => {
-    let color: "primary" | "secondary" | "error" | "info" | "success" | "warning" | "default" = "default";
-    
-    if (platform.includes('NVIDIA')) {
-      color = 'success';
-    } else if (platform.includes('INTEL')) {
-      color = 'primary';
-    } else if (platform.includes('AMD')) {
-      color = 'error';
-    } else if (platform === 'CPU') {
-      color = 'default';
-    }
-    
-    return <Chip label={platform} color={color} size="small" />;
-  };
-  
-  // Render loading state
-  if (loading && !accelerationInfo) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-  
-  return (
-    <Box>
-      {error && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {error}
-        </Alert>
-      )}
-      
-      {saveSuccess && (
-        <Alert severity="success" sx={{ mb: 2 }}>
-          Hardware acceleration settings saved successfully!
-        </Alert>
-      )}
-      
-      {saveError && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {saveError}
-        </Alert>
-      )}
-      
-      <Grid container spacing={3}>
-        {/* Hardware Acceleration Status */}
-        <Grid item xs={12}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography variant="h6">
-                  <MemoryIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-                  Hardware Acceleration Status
-                </Typography>
-                <Button
-                  startIcon={<RefreshIcon />}
-                  variant="outlined"
-                  size="small"
-                  onClick={fetchAccelerationInfo}
-                  disabled={loading}
-                >
-                  Refresh
-                </Button>
-              </Box>
-              
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={settings.enabled}
-                    onChange={(e) => setSettings({ ...settings, enabled: e.target.checked })}
-                    color="primary"
-                  />
-                }
-                label={settings.enabled ? "Hardware Acceleration Enabled" : "Hardware Acceleration Disabled"}
-              />
-              
-              <Box sx={{ mt: 2 }}>
-                <Typography variant="subtitle2" gutterBottom>
-                  Available Platforms:
-                </Typography>
-                <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
-                  {accelerationInfo?.availablePlatforms.map((platform) => (
-                    renderPlatformChip(platform)
-                  ))}
-                </Stack>
-              </Box>
-              
-              <Box sx={{ mt: 2 }}>
-                <Typography variant="subtitle2" gutterBottom>
-                  Active Platforms:
-                </Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6}>
-                    <Paper variant="outlined" sx={{ p: 1 }}>
-                      <Typography variant="body2" color="textSecondary">
-                        Inference:
-                      </Typography>
-                      {renderPlatformChip(accelerationInfo?.activePlatforms.inference || 'CPU')}
-                    </Paper>
-                  </Grid>
-                  <Grid item xs={12} sm={6}>
-                    <Paper variant="outlined" sx={{ p: 1 }}>
-                      <Typography variant="body2" color="textSecondary">
-                        Image Processing:
-                      </Typography>
-                      {renderPlatformChip(accelerationInfo?.activePlatforms.imageProcessing || 'CPU')}
-                    </Paper>
-                  </Grid>
-                </Grid>
-              </Box>
-              
-              <Box sx={{ mt: 2 }}>
-                <Typography variant="subtitle2" gutterBottom>
-                  Performance Statistics:
-                </Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={6}>
-                    <Typography variant="body2" color="textSecondary">
-                      Detected Objects:
-                    </Typography>
-                    <Typography variant="body1">
-                      {stats?.detectionCount.toLocaleString()}
-                    </Typography>
-                  </Grid>
-                  <Grid item xs={6}>
-                    <Typography variant="body2" color="textSecondary">
-                      Processed Frames:
-                    </Typography>
-                    <Typography variant="body1">
-                      {stats?.processingCount.toLocaleString()}
-                    </Typography>
-                  </Grid>
-                </Grid>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+    const fetchDevicesAndConfig = async () => {
+      setLoading(true);
+      try {
+        // Get hardware devices
+        const devicesResponse = await axios.get(`${API_BASE_URL}/protocols/hardware/devices`);
+        setDevices(devicesResponse.data.devices);
+
+        // Get acceleration config
+        const configUrl = cameraId 
+          ? `${API_BASE_URL}/protocols/hardware/cameras/${cameraId}/acceleration`
+          : `${API_BASE_URL}/protocols/hardware/acceleration`;
         
-        {/* Available Devices */}
-        <Grid item xs={12}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                <MemoryIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-                Available Accelerator Devices
-              </Typography>
-              
-              <TableContainer>
+        const configResponse = await axios.get(configUrl);
+        setConfig(configResponse.data);
+        
+        if (configResponse.data.defaultDevice) {
+          setSelectedDevice(configResponse.data.defaultDevice);
+        } else if (devicesResponse.data.devices.length > 0) {
+          setSelectedDevice(devicesResponse.data.devices[0].id);
+        }
+      } catch (error) {
+        console.error('Error fetching hardware acceleration data:', error);
+        enqueueSnackbar('Failed to load hardware acceleration settings', { variant: 'error' });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDevicesAndConfig();
+  }, [cameraId, enqueueSnackbar]);
+
+  // Handle enable/disable toggle
+  const handleEnableToggle = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const enabled = event.target.checked;
+    
+    try {
+      const updateUrl = cameraId 
+        ? `${API_BASE_URL}/protocols/hardware/cameras/${cameraId}/acceleration`
+        : `${API_BASE_URL}/protocols/hardware/acceleration`;
+      
+      const response = await axios.put(updateUrl, {
+        ...config,
+        enabled
+      });
+      
+      setConfig(response.data);
+      
+      if (onChange) {
+        onChange(response.data);
+      }
+      
+      enqueueSnackbar(
+        `Hardware acceleration ${enabled ? 'enabled' : 'disabled'} successfully`,
+        { variant: 'success' }
+      );
+    } catch (error) {
+      console.error('Error updating hardware acceleration settings:', error);
+      enqueueSnackbar('Failed to update hardware acceleration settings', { variant: 'error' });
+    }
+  };
+
+  // Handle device selection change
+  const handleDeviceChange = async (event: SelectChangeEvent<string>) => {
+    const deviceId = event.target.value;
+    setSelectedDevice(deviceId);
+    
+    if (admin) {
+      try {
+        const updateUrl = cameraId 
+          ? `${API_BASE_URL}/protocols/hardware/cameras/${cameraId}/acceleration`
+          : `${API_BASE_URL}/protocols/hardware/acceleration`;
+        
+        const response = await axios.put(updateUrl, {
+          ...config,
+          defaultDevice: deviceId
+        });
+        
+        setConfig(response.data);
+        
+        if (onChange) {
+          onChange(response.data);
+        }
+        
+        enqueueSnackbar('Default hardware device updated successfully', { variant: 'success' });
+      } catch (error) {
+        console.error('Error updating default hardware device:', error);
+        enqueueSnackbar('Failed to update default hardware device', { variant: 'error' });
+      }
+    }
+  };
+
+  // Run benchmark on selected device
+  const handleRunBenchmark = async () => {
+    if (!selectedDevice) return;
+    
+    setBenchmarking(true);
+    try {
+      const response = await axios.post(`${API_BASE_URL}/protocols/hardware/benchmark`, {
+        deviceId: selectedDevice,
+        testType: 'comprehensive'
+      });
+      
+      setBenchmarkResults(response.data);
+      enqueueSnackbar('Benchmark completed successfully', { variant: 'success' });
+    } catch (error) {
+      console.error('Error running benchmark:', error);
+      enqueueSnackbar('Failed to run hardware benchmark', { variant: 'error' });
+    } finally {
+      setBenchmarking(false);
+    }
+  };
+
+  // Get device details by ID
+  const getDeviceById = (id: string) => {
+    return devices.find(device => device.id === id);
+  };
+
+  return (
+    <Card>
+      <CardHeader
+        title="Hardware Acceleration"
+        avatar={<MemoryIcon />}
+        action={
+          loading ? <CircularProgress size={24} /> : null
+        }
+      />
+      <Divider />
+      <CardContent>
+        <Grid container spacing={3}>
+          {/* Enable/Disable toggle */}
+          <Grid item xs={12}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={config.enabled}
+                  onChange={handleEnableToggle}
+                  disabled={loading || !admin}
+                />
+              }
+              label={`Hardware Acceleration ${config.enabled ? 'Enabled' : 'Disabled'}`}
+            />
+            <Typography variant="body2" color="text.secondary">
+              {config.enabled 
+                ? 'Hardware acceleration is currently enabled for better performance'
+                : 'Enable hardware acceleration to improve performance'}
+            </Typography>
+          </Grid>
+
+          {/* Device selection */}
+          <Grid item xs={12}>
+            <FormControl fullWidth disabled={loading || !config.enabled}>
+              <InputLabel id="device-select-label">Hardware Device</InputLabel>
+              <Select
+                labelId="device-select-label"
+                id="device-select"
+                value={selectedDevice}
+                label="Hardware Device"
+                onChange={handleDeviceChange}
+                disabled={loading || !config.enabled || (!admin && !cameraId)}
+              >
+                {devices.map((device) => (
+                  <MenuItem key={device.id} value={device.id}>
+                    {device.name} ({device.vendor})
+                  </MenuItem>
+                ))}
+              </Select>
+              <FormHelperText>
+                Select hardware device for acceleration
+              </FormHelperText>
+            </FormControl>
+          </Grid>
+
+          {/* Device details */}
+          {selectedDevice && (
+            <Grid item xs={12}>
+              <Paper variant="outlined" sx={{ p: 2 }}>
+                <Typography variant="subtitle1" gutterBottom>
+                  <DevicesIcon fontSize="small" sx={{ mr: 1, verticalAlign: 'middle' }} />
+                  Device Details
+                </Typography>
+                
+                {getDeviceById(selectedDevice) && (
+                  <Box>
+                    <Typography variant="body2">
+                      <strong>Name:</strong> {getDeviceById(selectedDevice)?.name}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>Vendor:</strong> {getDeviceById(selectedDevice)?.vendor}
+                    </Typography>
+                    <Typography variant="body2">
+                      <strong>Type:</strong> {getDeviceById(selectedDevice)?.type.toUpperCase()}
+                    </Typography>
+                    {getDeviceById(selectedDevice)?.memory && (
+                      <Typography variant="body2">
+                        <strong>Memory:</strong> {getDeviceById(selectedDevice)?.memory} MB
+                      </Typography>
+                    )}
+                    <Box sx={{ mt: 1 }}>
+                      <Typography variant="body2" gutterBottom>
+                        <strong>Capabilities:</strong>
+                      </Typography>
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                        {getDeviceById(selectedDevice)?.capabilities.map((cap) => (
+                          <Chip
+                            key={cap}
+                            label={cap}
+                            size="small"
+                            variant="outlined"
+                          />
+                        ))}
+                      </Box>
+                    </Box>
+                  </Box>
+                )}
+              </Paper>
+            </Grid>
+          )}
+
+          {/* Benchmark button */}
+          <Grid item xs={12}>
+            <Button
+              variant="outlined"
+              startIcon={benchmarking ? <CircularProgress size={24} /> : <SpeedIcon />}
+              onClick={handleRunBenchmark}
+              disabled={benchmarking || !selectedDevice || !config.enabled}
+              fullWidth
+            >
+              {benchmarking ? 'Running Benchmark...' : 'Run Performance Benchmark'}
+            </Button>
+          </Grid>
+
+          {/* Benchmark results */}
+          {benchmarkResults && (
+            <Grid item xs={12}>
+              <TableContainer component={Paper} variant="outlined">
                 <Table size="small">
                   <TableHead>
                     <TableRow>
-                      <TableCell>Device</TableCell>
-                      <TableCell>Platform</TableCell>
-                      <TableCell>Memory</TableCell>
-                      <TableCell>Utilization</TableCell>
-                      <TableCell>Capabilities</TableCell>
+                      <TableCell>Benchmark</TableCell>
+                      <TableCell align="right">Score</TableCell>
+                      <TableCell>Rating</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {accelerationInfo?.deviceInfo.map((device) => (
-                      <TableRow key={device.deviceId}>
-                        <TableCell>
-                          <Typography variant="body2">
-                            {device.deviceName}
-                          </Typography>
-                          <Typography variant="caption" color="textSecondary">
-                            {device.deviceId}
-                          </Typography>
-                        </TableCell>
-                        <TableCell>
-                          {renderPlatformChip(device.platform)}
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2">
-                            {formatMemory(device.memoryFree)} free
-                          </Typography>
-                          <Typography variant="caption" color="textSecondary">
-                            Total: {formatMemory(device.memoryTotal)}
-                          </Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2">
-                            {(device.utilization * 100).toFixed(1)}%
-                          </Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Stack direction="row" spacing={0.5} sx={{ flexWrap: 'wrap', gap: 0.5 }}>
-                            {device.capabilities.map((cap) => (
-                              <Chip key={cap} label={cap} size="small" variant="outlined" />
-                            ))}
-                          </Stack>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </CardContent>
-          </Card>
-        </Grid>
-        
-        {/* Hardware Acceleration Settings */}
-        <Grid item xs={12}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                <SettingsIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-                Hardware Acceleration Settings
-              </Typography>
-              
-              <Grid container spacing={3}>
-                <Grid item xs={12} md={6}>
-                  <FormControl fullWidth sx={{ mt: 2 }}>
-                    <InputLabel id="inference-platform-label">Inference Platform</InputLabel>
-                    <Select
-                      labelId="inference-platform-label"
-                      value={settings.inferencePlatform || ''}
-                      label="Inference Platform"
-                      onChange={(e) => setSettings({ ...settings, inferencePlatform: e.target.value })}
-                      disabled={!settings.enabled}
-                    >
-                      <MenuItem value="">
-                        <em>Auto (System Default)</em>
-                      </MenuItem>
-                      {accelerationInfo?.availablePlatforms.map((platform) => (
-                        <MenuItem key={platform} value={platform}>
-                          {platform}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-                
-                <Grid item xs={12} md={6}>
-                  <FormControl fullWidth sx={{ mt: 2 }}>
-                    <InputLabel id="image-processing-platform-label">Image Processing Platform</InputLabel>
-                    <Select
-                      labelId="image-processing-platform-label"
-                      value={settings.imageProcessingPlatform || ''}
-                      label="Image Processing Platform"
-                      onChange={(e) => setSettings({ ...settings, imageProcessingPlatform: e.target.value })}
-                      disabled={!settings.enabled}
-                    >
-                      <MenuItem value="">
-                        <em>Auto (System Default)</em>
-                      </MenuItem>
-                      {accelerationInfo?.availablePlatforms.map((platform) => (
-                        <MenuItem key={platform} value={platform}>
-                          {platform}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Grid>
-                
-                <Grid item xs={12}>
-                  <Box sx={{ mt: 2 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-                      <Typography id="perf-power-balance-slider" gutterBottom>
-                        Performance vs. Power Efficiency
-                      </Typography>
-                    </Box>
-                    <Grid container spacing={2} alignItems="center">
-                      <Grid item>
-                        <BatteryIcon color="success" />
-                      </Grid>
-                      <Grid item xs>
-                        <Slider
-                          value={settings.perfPowerBalance * 100}
-                          onChange={(_, newValue) => setSettings({ 
-                            ...settings, 
-                            perfPowerBalance: (newValue as number) / 100 
-                          })}
-                          aria-labelledby="perf-power-balance-slider"
-                          disabled={!settings.enabled}
-                          marks={[
-                            {
-                              value: 0,
-                              label: 'Power',
-                            },
-                            {
-                              value: 50,
-                              label: 'Balanced',
-                            },
-                            {
-                              value: 100,
-                              label: 'Performance',
-                            },
-                          ]}
-                        />
-                      </Grid>
-                      <Grid item>
-                        <SpeedIcon color="error" />
-                      </Grid>
-                    </Grid>
-                  </Box>
-                </Grid>
-              </Grid>
-              
-              <Box sx={{ mt: 4, display: 'flex', justifyContent: 'flex-end' }}>
-                <Button
-                  variant="contained"
-                  color="primary"
-                  startIcon={<SaveIcon />}
-                  onClick={saveSettings}
-                  disabled={loading}
-                >
-                  {loading ? 'Saving...' : 'Save Settings'}
-                </Button>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-        
-        {/* Model Information */}
-        <Grid item xs={12}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                <MemoryIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-                Detection Model Information
-              </Typography>
-              
-              <TableContainer>
-                <Table size="small">
-                  <TableBody>
                     <TableRow>
-                      <TableCell component="th" scope="row">Model Type</TableCell>
-                      <TableCell>{modelInfo?.type}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell component="th" scope="row">Model Path</TableCell>
-                      <TableCell>{modelInfo?.path}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell component="th" scope="row">Number of Classes</TableCell>
-                      <TableCell>{modelInfo?.classes}</TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell component="th" scope="row">Task Types</TableCell>
+                      <TableCell>Video Decoding</TableCell>
+                      <TableCell align="right">{benchmarkResults.scores.videoDecoding}</TableCell>
                       <TableCell>
-                        <Stack direction="row" spacing={1}>
-                          {modelInfo?.taskTypes.map((task) => (
-                            <Chip key={task} label={task} size="small" />
-                          ))}
-                        </Stack>
+                        {getRatingChip(benchmarkResults.scores.videoDecoding)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell>Video Encoding</TableCell>
+                      <TableCell align="right">{benchmarkResults.scores.videoEncoding}</TableCell>
+                      <TableCell>
+                        {getRatingChip(benchmarkResults.scores.videoEncoding)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell>Image Processing</TableCell>
+                      <TableCell align="right">{benchmarkResults.scores.imageProcessing}</TableCell>
+                      <TableCell>
+                        {getRatingChip(benchmarkResults.scores.imageProcessing)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell>Inference Speed</TableCell>
+                      <TableCell align="right">{benchmarkResults.scores.inferenceSpeed}</TableCell>
+                      <TableCell>
+                        {getRatingChip(benchmarkResults.scores.inferenceSpeed)}
+                      </TableCell>
+                    </TableRow>
+                    <TableRow>
+                      <TableCell><strong>Overall Performance</strong></TableCell>
+                      <TableCell align="right"><strong>{benchmarkResults.scores.overall}</strong></TableCell>
+                      <TableCell>
+                        {getRatingChip(benchmarkResults.scores.overall)}
                       </TableCell>
                     </TableRow>
                   </TableBody>
                 </Table>
               </TableContainer>
-            </CardContent>
-          </Card>
+              <Typography variant="caption" color="text.secondary">
+                Benchmark performed on {new Date(benchmarkResults.timestamp).toLocaleString()}
+              </Typography>
+            </Grid>
+          )}
         </Grid>
-      </Grid>
-    </Box>
+      </CardContent>
+    </Card>
   );
+};
+
+// Helper function to get rating chip based on score
+const getRatingChip = (score: number) => {
+  if (score >= 8) {
+    return <Chip label="Excellent" size="small" color="success" />;
+  } else if (score >= 6) {
+    return <Chip label="Good" size="small" color="primary" />;
+  } else if (score >= 4) {
+    return <Chip label="Average" size="small" color="info" />;
+  } else if (score >= 2) {
+    return <Chip label="Poor" size="small" color="warning" />;
+  } else {
+    return <Chip label="Very Poor" size="small" color="error" />;
+  }
 };
 
 export default HardwareAccelerationSettings;

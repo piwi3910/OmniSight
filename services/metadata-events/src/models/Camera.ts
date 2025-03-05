@@ -1,5 +1,32 @@
 import { Sequelize, DataTypes, Model, Optional } from 'sequelize';
 
+// Camera capabilities interface
+interface CameraCapabilities {
+  ptz: boolean;
+  presets: boolean;
+  digitalPtz: boolean;
+  motionDetection: boolean;
+  audio: boolean;
+  twoWayAudio: boolean;
+  events: boolean;
+  ioPorts: boolean;
+  privacyMask: boolean;
+  configuration: boolean;
+  wdr: boolean;
+}
+
+// Camera settings interface
+interface CameraSettings {
+  capabilities?: CameraCapabilities;
+  protocolSettings?: object;
+  hardwareAcceleration?: {
+    enabled: boolean;
+    deviceId?: string;
+    profile?: string;
+  };
+  [key: string]: any; // For backward compatibility with existing settings
+}
+
 // Camera attributes interface
 interface CameraAttributes {
   id: string;
@@ -11,7 +38,8 @@ interface CameraAttributes {
   ipAddress?: string;
   model?: string;
   location?: string;
-  settings?: object;
+  protocolType?: 'rtsp' | 'onvif' | 'hikvision' | 'dahua' | 'axis' | 'mjpeg' | 'webrtc' | 'hls';
+  settings?: CameraSettings;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -30,7 +58,8 @@ class Camera extends Model<CameraAttributes, CameraCreationAttributes> implement
   public ipAddress?: string;
   public model?: string;
   public location?: string;
-  public settings?: object;
+  public protocolType?: 'rtsp' | 'onvif' | 'hikvision' | 'dahua' | 'axis' | 'mjpeg' | 'webrtc' | 'hls';
+  public settings?: CameraSettings;
   public createdAt!: Date;
   public updatedAt!: Date;
 
@@ -93,6 +122,11 @@ export default (sequelize: Sequelize, dataTypes: typeof DataTypes) => {
     location: {
       type: dataTypes.STRING,
       allowNull: true
+    },
+    protocolType: {
+      type: dataTypes.ENUM('rtsp', 'onvif', 'hikvision', 'dahua', 'axis', 'mjpeg', 'webrtc', 'hls'),
+      allowNull: true,
+      defaultValue: 'rtsp'
     },
     settings: {
       type: dataTypes.JSONB,
