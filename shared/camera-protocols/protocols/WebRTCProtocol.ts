@@ -707,8 +707,7 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
   /**
    * Get protocol-specific options
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  public getProtocolOptions(): Record<string, any> {
+  public getProtocolOptions(): Record<string, unknown> {
     return {
       signalingPort: this.config?.webrtcPort || 8433,
       iceServers: this.getIceServers(),
@@ -805,7 +804,7 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
 
         // Try to listen on the port
         server.listen(port);
-      } catch (_) {
+      } catch {
         // Any error means the connection test failed
         resolve(false);
       }
@@ -1146,6 +1145,7 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
   /**
    * Move camera (not supported in this implementation)
    */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   protected async performMove(_movement: PtzMovement): Promise<void> {
     throw new Error('WebRTC protocol does not support PTZ controls in this implementation');
   }
@@ -1153,6 +1153,7 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
   /**
    * Go to preset (not supported in this implementation)
    */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   protected async performGotoPreset(_presetId: string): Promise<void> {
     throw new Error('WebRTC protocol does not support PTZ presets in this implementation');
   }
@@ -1160,6 +1161,7 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
   /**
    * Save preset (not supported in this implementation)
    */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   protected async performSavePreset(_presetName: string): Promise<string> {
     throw new Error('WebRTC protocol does not support PTZ presets in this implementation');
   }
@@ -1167,6 +1169,7 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
   /**
    * Subscribe to camera events (not supported in this implementation)
    */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   protected async performSubscribeToEvents(_eventTypes: string[]): Promise<string> {
     throw new Error('WebRTC protocol does not support event subscription in this implementation');
   }
@@ -1174,6 +1177,7 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
   /**
    * Unsubscribe from camera events (not supported in this implementation)
    */
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   protected async performUnsubscribeFromEvents(_subscriptionId: string): Promise<void> {
     throw new Error('WebRTC protocol does not support event subscription in this implementation');
   }
