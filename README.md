@@ -5,17 +5,47 @@ OmniSight is a modern Network Video Recorder (NVR) system built with a microserv
 ## System Overview
 
 OmniSight provides the following capabilities:
-- Accept and process RTSP streams from security cameras
+- Multi-protocol support for camera streams (RTSP, MJPEG, WebRTC, HLS, ONVIF)
+- Hardware-accelerated video processing for NVIDIA, AMD, and Intel GPUs
 - Record video streams continuously to storage with efficient segmentation
 - Perform object detection and motion analysis
-- Store and manage metadata and events
-- Provide a modern React-based user interface for monitoring and playback
+- PTZ camera control for supported protocols
+- Advanced analytics dashboard with visualization
+- Third-party extension API with webhook support
+- Comprehensive event detection and notification system
+- Modern React-based user interface for monitoring and playback
+
+## Implementation Status
+
+All planned features have been successfully implemented across the following areas:
+
+1. **Camera Protocol Support** - Supporting multiple camera protocols including:
+   - Hikvision, Dahua, and Axis proprietary protocols
+   - Protocol abstraction layer with unified interface
+   - WebRTC for ultra-low latency streaming
+   - MJPEG with advanced buffer controls
+   - ONVIF standard with PTZ and profile support
+   - Enhanced HLS with adaptive bitrate
+
+2. **Hardware Acceleration** - GPU-accelerated processing:
+   - Unified acceleration framework
+   - NVIDIA CUDA/NVENC/NVDEC support
+   - AMD ROCm/AMF support
+   - Intel oneAPI/QuickSync support
+
+3. **Advanced Features**:
+   - Comprehensive analytics dashboard
+   - Third-party extension API with webhooks
+   - Interactive timeline with event markers
+   - Multi-camera grid view with PTZ controls
+
+For a detailed implementation plan and status of all features, see the [Implementation Plan](implementation-plan.md).
 
 ## Architecture
 
 OmniSight is built using a microservices architecture with the following components:
 
-1. **Stream Ingestion Service**: Handles RTSP stream connections, authentication, and distribution
+1. **Stream Ingestion Service**: Handles camera stream connections, protocol detection, and distribution
 2. **Recording Service**: Manages video recording, segmentation, and storage
 3. **Object Detection Service**: Processes video frames for motion/object detection using TensorFlow.js
 4. **Metadata & Events Service**: Stores detection events and video metadata in PostgreSQL using Sequelize ORM
@@ -25,12 +55,13 @@ OmniSight is built using a microservices architecture with the following compone
 ## Technology Stack
 
 - **Backend Services**: Node.js with TypeScript
-- **Database**: PostgreSQL with Sequelize ORM
-- **Frontend**: React with TypeScript
-- **Communication**: REST APIs and WebSockets
+- **Database**: PostgreSQL with Prisma ORM
+- **Frontend**: React with TypeScript, Material-UI
+- **Communication**: REST APIs, WebSockets, and RabbitMQ
 - **Container Platform**: Docker and Docker Compose
-- **Message Queue**: RabbitMQ or Redis for video frame distribution
-- **Object Detection**: TensorFlow.js for Node.js
+- **Video Processing**: FFmpeg, TensorFlow.js, WebRTC
+- **Hardware Acceleration**: NVIDIA CUDA, AMD ROCm, Intel oneAPI
+- **Object Detection**: TensorFlow.js with hardware acceleration
 
 ## Project Structure
 
@@ -49,10 +80,22 @@ OmniSight/
 │   └── api-gateway/            # API Gateway Service
 ├── shared/                     # Shared libraries and utilities
 │   ├── models/                 # Shared data models
-│   ├── utils/                  # Utility functions
-│   └── config/                 # Configuration utilities
+│   ├── camera-protocols/       # Protocol abstraction layer
+│   ├── hardware-acceleration/  # Hardware acceleration framework
+│   └── messaging/              # Messaging utilities
 └── docker-compose.yml          # Docker Compose configuration
 ```
+
+## API Endpoints
+
+The system provides comprehensive API endpoints for all features, including:
+
+- `/protocols/*` - Camera protocol management and discovery
+- `/streams/*` - Stream management for different protocols (WebRTC, MJPEG, HLS)
+- `/analytics/*` - Analytics data and visualization
+- `/extensions/*` - Third-party extension management
+
+For complete API documentation, visit the Swagger docs at `http://localhost:8000/api-docs`.
 
 ## Getting Started
 
@@ -62,6 +105,7 @@ OmniSight/
 - Docker and Docker Compose
 - PostgreSQL
 - Git
+- (Optional) NVIDIA, AMD, or Intel GPU for hardware acceleration
 
 ### Development Setup
 
