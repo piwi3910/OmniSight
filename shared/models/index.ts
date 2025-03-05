@@ -2,33 +2,54 @@
  * Shared model interfaces to ensure consistency across services
  * These represent the core domain objects in the OmniSight system
  */
+// Settings and metadata type definitions
+export interface UserSettings {
+  theme?: string;
+  language?: string;
+  notifications?: boolean;
+  dashboardLayout?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface CameraSettings {
+  resolution?: string;
+  fps?: number;
+  bitrate?: number;
+  nightMode?: boolean;
+  motionDetection?: boolean;
+  [key: string]: unknown;
+}
+
+export interface Metadata {
+  [key: string]: unknown;
+}
 
 // User role enum
 export enum UserRole {
   ADMIN = 'ADMIN',
   USER = 'USER',
-  VIEWER = 'VIEWER'
+  VIEWER = 'VIEWER',
 }
 
 // Camera status enum
 export enum CameraStatus {
   ONLINE = 'ONLINE',
   OFFLINE = 'OFFLINE',
-  ERROR = 'ERROR'
+  ERROR = 'ERROR',
 }
 
 // Stream status enum
 export enum StreamStatus {
   ACTIVE = 'ACTIVE',
   INACTIVE = 'INACTIVE',
-  ERROR = 'ERROR'
+  ERROR = 'ERROR',
 }
 
 // Recording status enum
 export enum RecordingStatus {
   RECORDING = 'RECORDING',
   COMPLETED = 'COMPLETED',
-  ERROR = 'ERROR'
+  ERROR = 'ERROR',
 }
 
 // User interface
@@ -40,7 +61,7 @@ export interface User {
   role: UserRole;
   isActive: boolean;
   lastLogin?: Date;
-  settings?: any;
+  settings?: UserSettings;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -56,7 +77,7 @@ export interface Camera {
   ipAddress?: string;
   model?: string;
   location?: string;
-  settings?: any;
+  settings?: CameraSettings;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -68,7 +89,7 @@ export interface Stream {
   status: StreamStatus;
   startedAt?: Date;
   endedAt?: Date;
-  metadata?: any;
+  metadata?: Metadata;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -82,7 +103,7 @@ export interface Recording {
   endTime?: Date;
   duration?: number; // In seconds
   status: RecordingStatus;
-  metadata?: any;
+  metadata?: Metadata;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -97,7 +118,7 @@ export interface Segment {
   filePath: string;
   fileSize: number; // In bytes
   thumbnailPath?: string;
-  metadata?: any;
+  metadata?: Metadata;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -111,7 +132,7 @@ export interface Event {
   eventType: string; // 'motion', 'object_detected', etc.
   confidence?: number;
   thumbnailPath?: string;
-  metadata?: any;
+  metadata?: Metadata;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -128,7 +149,7 @@ export interface DetectedObject {
     width: number;
     height: number;
   };
-  metadata?: any;
+  metadata?: Metadata;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -144,7 +165,7 @@ export interface Notification {
   status: string; // 'pending', 'sent', 'read', 'failed'
   sentAt?: Date;
   readAt?: Date;
-  metadata?: any;
+  metadata?: Metadata;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -174,4 +195,4 @@ export interface SystemSettings {
 }
 
 // Generic metadata object type
-export type MetadataObject = Record<string, any>;
+export type MetadataObject = Metadata;
