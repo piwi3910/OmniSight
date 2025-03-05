@@ -8,18 +8,18 @@
 import * as path from 'path';
 import {
   createWebRTCSystem,
-  WebRTCStreamState,
+  // WebRTCStreamState removed - unused import
   WebRTCStreamEvent,
   EncryptionMode,
-  NATTraversalStrategy,
+  // NATTraversalStrategy removed - unused import
   StreamIngestionPipeline,
   StreamSourceType,
   StreamOutputFormat,
   StreamIngestionConfig,
   StreamIngestionEvent,
   RecordingFormat,
-  RecordingQuality,
-  RecordingEvent
+  RecordingQuality
+  // RecordingEvent removed - unused import
 } from '../utils';
 
 // Test camera details
@@ -83,8 +83,8 @@ async function runStreamingRecordingDemo() {
     }
   });
   
-  // Get access to the components
-  const { signalingServer, streamHandler, natHelper, encryption } = webrtcSystem;
+  // Get access to the components - extract only what we need
+  const { streamHandler } = webrtcSystem;
   
   try {
     // Start the WebRTC system
@@ -266,30 +266,71 @@ function setupPipelineEventHandlers(pipeline: StreamIngestionPipeline): void {
 
 /**
  * Set up event handlers for the WebRTC stream handler
- * 
+ *
  * @param streamHandler The stream handler to set up event handlers for
  */
-function setupStreamHandlerEventHandlers(streamHandler: any): void {
-  streamHandler.on(WebRTCStreamEvent.STREAM_CREATED, (event: any) => {
-    console.log(`WebRTC stream created: ${event.streamId}`);
+// Using type-safe approach with unknown + type guards
+function setupStreamHandlerEventHandlers(streamHandler: unknown): void {
+  // Define more specific types for the handler functions
+  type EventCallback = (event: unknown) => void;
+  
+  const handler = streamHandler as {
+    on: (eventName: string, callback: EventCallback) => void;
+    closeAllStreams: () => void;
+  };
+  
+  // Type guards to validate event structure
+  function isStreamEvent(event: unknown): event is { streamId: string } {
+    return typeof event === 'object' && event !== null && 'streamId' in event;
+  }
+  
+  function isClientEvent(event: unknown): event is { streamId: string; clientId: string } {
+    return isStreamEvent(event) && 'clientId' in event;
+  }
+  
+  function isDisconnectEvent(event: unknown): event is {
+    streamId: string;
+    clientId: string;
+    duration: number;
+    bytesTransferred: number
+  } {
+    return isClientEvent(event) && 'duration' in event && 'bytesTransferred' in event;
+  }
+  
+  function isErrorEvent(event: unknown): event is { streamId: string; message: string } {
+    return isStreamEvent(event) && 'message' in event;
+  }
+  
+  handler.on(WebRTCStreamEvent.STREAM_CREATED, (event: unknown) => {
+    if (isStreamEvent(event)) {
+      console.log(`WebRTC stream created: ${event.streamId}`);
+    }
   });
   
-  streamHandler.on(WebRTCStreamEvent.CLIENT_CONNECTED, (event: any) => {
-    console.log(`Client connected: ${event.clientId} to stream ${event.streamId}`);
+  handler.on(WebRTCStreamEvent.CLIENT_CONNECTED, (event: unknown) => {
+    if (isClientEvent(event)) {
+      console.log(`Client connected: ${event.clientId} to stream ${event.streamId}`);
+    }
   });
   
-  streamHandler.on(WebRTCStreamEvent.CLIENT_DISCONNECTED, (event: any) => {
-    console.log(`Client disconnected: ${event.clientId} from stream ${event.streamId}`);
-    console.log(`  Session duration: ${(event.duration / 1000).toFixed(1)}s`);
-    console.log(`  Bytes transferred: ${(event.bytesTransferred / 1024 / 1024).toFixed(2)} MB`);
+  handler.on(WebRTCStreamEvent.CLIENT_DISCONNECTED, (event: unknown) => {
+    if (isDisconnectEvent(event)) {
+      console.log(`Client disconnected: ${event.clientId} from stream ${event.streamId}`);
+      console.log(`  Session duration: ${(event.duration / 1000).toFixed(1)}s`);
+      console.log(`  Bytes transferred: ${(event.bytesTransferred / 1024 / 1024).toFixed(2)} MB`);
+    }
   });
   
-  streamHandler.on(WebRTCStreamEvent.STREAM_CLOSED, (event: any) => {
-    console.log(`Stream closed: ${event.streamId}`);
+  handler.on(WebRTCStreamEvent.STREAM_CLOSED, (event: unknown) => {
+    if (isStreamEvent(event)) {
+      console.log(`Stream closed: ${event.streamId}`);
+    }
   });
   
-  streamHandler.on(WebRTCStreamEvent.ERROR, (event: any) => {
-    console.error(`Stream error: ${event.message}`);
+  handler.on(WebRTCStreamEvent.ERROR, (event: unknown) => {
+    if (isErrorEvent(event)) {
+      console.error(`Stream error: ${event.message}`);
+    }
   });
 }
 

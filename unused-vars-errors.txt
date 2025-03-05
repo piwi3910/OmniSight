@@ -1,0 +1,165 @@
+  7:3  error  'CameraEvent' is defined but never used  @typescript-eslint/no-unused-vars
+  504:11  error  'subscriptionId' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  601:16  error  'error' is defined but never used                    @typescript-eslint/no-unused-vars
+    1:41  error  'ConnectionStatus' is defined but never used  @typescript-eslint/no-unused-vars
+  329:16  error  'error' is defined but never used             @typescript-eslint/no-unused-vars
+  11:3   error  'WebRTCStreamState' is defined but never used         @typescript-eslint/no-unused-vars
+  14:3   error  'NATTraversalStrategy' is defined but never used      @typescript-eslint/no-unused-vars
+  22:3   error  'RecordingEvent' is defined but never used            @typescript-eslint/no-unused-vars
+  87:11  error  'signalingServer' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  87:43  error  'natHelper' is assigned a value but never used        @typescript-eslint/no-unused-vars
+  87:54  error  'encryption' is assigned a value but never used       @typescript-eslint/no-unused-vars
+  10:3   error  'WebRTCStreamState' is defined but never used         @typescript-eslint/no-unused-vars
+  62:11  error  'signalingServer' is assigned a value but never used  @typescript-eslint/no-unused-vars
+    2:10  error  'CameraCapabilities' is defined but never used  @typescript-eslint/no-unused-vars
+    2:30  error  'CameraEvent' is defined but never used         @typescript-eslint/no-unused-vars
+    2:43  error  'CameraInfo' is defined but never used          @typescript-eslint/no-unused-vars
+    4:10  error  'parseStringPromise' is defined but never used  @typescript-eslint/no-unused-vars
+  155:18  error  'e' is defined but never used                   @typescript-eslint/no-unused-vars
+  259:16  error  'e' is defined but never used                   @typescript-eslint/no-unused-vars
+  275:16  error  'e' is defined but never used                   @typescript-eslint/no-unused-vars
+  285:16  error  'e' is defined but never used                   @typescript-eslint/no-unused-vars
+  295:16  error  'e' is defined but never used                   @typescript-eslint/no-unused-vars
+  305:16  error  'e' is defined but never used                   @typescript-eslint/no-unused-vars
+  315:16  error  'e' is defined but never used                   @typescript-eslint/no-unused-vars
+  325:16  error  'e' is defined but never used                   @typescript-eslint/no-unused-vars
+  415:18  error  '_' is assigned a value but never used          @typescript-eslint/no-unused-vars
+  436:36  error  'position' is defined but never used            @typescript-eslint/no-unused-vars
+  645:24  error  'options' is defined but never used             @typescript-eslint/no-unused-vars
+    2:10  error  'CameraCapabilities' is defined but never used  @typescript-eslint/no-unused-vars
+    2:30  error  'CameraEvent' is defined but never used         @typescript-eslint/no-unused-vars
+    2:43  error  'CameraInfo' is defined but never used          @typescript-eslint/no-unused-vars
+  190:16  error  'e' is defined but never used                   @typescript-eslint/no-unused-vars
+  466:36  error  'position' is defined but never used            @typescript-eslint/no-unused-vars
+  666:24  error  'options' is defined but never used             @typescript-eslint/no-unused-vars
+    14:3   error  'CameraEvent' is defined but never used      @typescript-eslint/no-unused-vars
+   302:60  error  'data' is defined but never used             @typescript-eslint/no-unused-vars
+   307:60  error  'data' is defined but never used             @typescript-eslint/no-unused-vars
+   378:27  error  'stream' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  1204:14  error  'error' is defined but never used            @typescript-eslint/no-unused-vars
+  1213:25  error  'movement' is defined but never used         @typescript-eslint/no-unused-vars
+  1217:31  error  'presetId' is defined but never used         @typescript-eslint/no-unused-vars
+  1221:31  error  'presetName' is defined but never used       @typescript-eslint/no-unused-vars
+  1225:38  error  'eventTypes' is defined but never used       @typescript-eslint/no-unused-vars
+  1229:42  error  'subscriptionId' is defined but never used   @typescript-eslint/no-unused-vars
+  2:28  error  'CameraEvent' is defined but never used   @typescript-eslint/no-unused-vars
+  2:41  error  'CameraInfo' is defined but never used    @typescript-eslint/no-unused-vars
+  2:53  error  'CameraPreset' is defined but never used  @typescript-eslint/no-unused-vars
+   9:10  error  'EventEmitter' is defined but never used        @typescript-eslint/no-unused-vars
+  10:32  error  'AxiosRequestConfig' is defined but never used  @typescript-eslint/no-unused-vars
+   13:10  error  'Readable' is defined but never used        @typescript-eslint/no-unused-vars
+   13:20  error  'Transform' is defined but never used       @typescript-eslint/no-unused-vars
+   18:3   error  'CameraEvent' is defined but never used     @typescript-eslint/no-unused-vars
+  858:25  error  'movement' is defined but never used        @typescript-eslint/no-unused-vars
+  862:31  error  'presetId' is defined but never used        @typescript-eslint/no-unused-vars
+  866:31  error  'presetName' is defined but never used      @typescript-eslint/no-unused-vars
+  870:38  error  'eventTypes' is defined but never used      @typescript-eslint/no-unused-vars
+  874:42  error  'subscriptionId' is defined but never used  @typescript-eslint/no-unused-vars
+  276:33  error  'subscription' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  445:28  error  'options' is defined but never used                @typescript-eslint/no-unused-vars
+  838:18  error  'error' is defined but never used                  @typescript-eslint/no-unused-vars
+  842:14  error  'error' is defined but never used                  @typescript-eslint/no-unused-vars
+     1:10  error  'EventEmitter' is defined but never used      @typescript-eslint/no-unused-vars
+     3:13  error  'fs' is defined but never used                @typescript-eslint/no-unused-vars
+     4:13  error  'path' is defined but never used              @typescript-eslint/no-unused-vars
+     6:13  error  'sdpTransform' is defined but never used      @typescript-eslint/no-unused-vars
+    15:3   error  'ConnectionStatus' is defined but never used  @typescript-eslint/no-unused-vars
+    19:3   error  'CameraEvent' is defined but never used       @typescript-eslint/no-unused-vars
+   249:43  error  'req' is defined but never used               @typescript-eslint/no-unused-vars
+   817:16  error  'error' is defined but never used             @typescript-eslint/no-unused-vars
+  1157:31  error  'movement' is defined but never used          @typescript-eslint/no-unused-vars
+  1164:37  error  'presetId' is defined but never used          @typescript-eslint/no-unused-vars
+  1171:37  error  'presetName' is defined but never used        @typescript-eslint/no-unused-vars
+  1178:44  error  'eventTypes' is defined but never used        @typescript-eslint/no-unused-vars
+  1185:48  error  'subscriptionId' is defined but never used    @typescript-eslint/no-unused-vars
+  122:9   error  'WebSocketServer' is defined but only used as a type  @typescript-eslint/no-unused-vars
+  143:13  error  'Constants' is defined but never used                 @typescript-eslint/no-unused-vars
+    2:13  error  'WebSocket' is defined but never used            @typescript-eslint/no-unused-vars
+    3:16  error  'uuidv4' is defined but never used               @typescript-eslint/no-unused-vars
+  362:11  error  'serverHost' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  383:14  error  'error' is defined but never used                @typescript-eslint/no-unused-vars
+  405:15  error  'serverHost' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  418:18  error  'error' is defined but never used                @typescript-eslint/no-unused-vars
+  642:13  error  'foundation' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  643:13  error  'component' is assigned a value but never used   @typescript-eslint/no-unused-vars
+  11:10  error  'Readable' is defined but never used  @typescript-eslint/no-unused-vars
+  11:20  error  'Writable' is defined but never used  @typescript-eslint/no-unused-vars
+  16:8   error  'axios' is defined but never used     @typescript-eslint/no-unused-vars
+  584:13  error  'thumbnailPath' is assigned a value but never used  @typescript-eslint/no-unused-vars
+    4:10  error  'PeerConnectionManager' is defined but never used  @typescript-eslint/no-unused-vars
+  319:17  error  'streamId' is assigned a value but never used      @typescript-eslint/no-unused-vars
+  85:50   error  'NATTraversalEvent' is defined but never used        @typescript-eslint/no-unused-vars
+  85:69   error  'NATTraversalStrategy' is defined but never used     @typescript-eslint/no-unused-vars
+  85:91   error  'NATTraversalStats' is defined but never used        @typescript-eslint/no-unused-vars
+  85:110  error  'NetworkTypeInfo' is defined but never used          @typescript-eslint/no-unused-vars
+  85:127  error  'ICECandidateType' is defined but never used         @typescript-eslint/no-unused-vars
+  85:145  error  'ICECandidateInfo' is defined but never used         @typescript-eslint/no-unused-vars
+  86:44   error  'EncryptionConfig' is defined but never used         @typescript-eslint/no-unused-vars
+  86:62   error  'EncryptionHeader' is defined but never used         @typescript-eslint/no-unused-vars
+  86:80   error  'EncryptionKeyInfo' is defined but never used        @typescript-eslint/no-unused-vars
+  86:99   error  'EncryptionStats' is defined but never used          @typescript-eslint/no-unused-vars
+  87:10   error  'WebRTCRecorder' is defined but never used           @typescript-eslint/no-unused-vars
+  87:26   error  'RecordingFormat' is defined but never used          @typescript-eslint/no-unused-vars
+  87:43   error  'RecordingQuality' is defined but never used         @typescript-eslint/no-unused-vars
+  87:61   error  'RecordingState' is defined but never used           @typescript-eslint/no-unused-vars
+  87:77   error  'RecordingEvent' is defined but never used           @typescript-eslint/no-unused-vars
+  87:93   error  'RecordingConfig' is defined but never used          @typescript-eslint/no-unused-vars
+  87:110  error  'RecordingMetadata' is defined but never used        @typescript-eslint/no-unused-vars
+  87:129  error  'RecordingStats' is defined but never used           @typescript-eslint/no-unused-vars
+  88:10   error  'StreamIngestionPipeline' is defined but never used  @typescript-eslint/no-unused-vars
+  88:35   error  'StreamSourceType' is defined but never used         @typescript-eslint/no-unused-vars
+  88:53   error  'StreamOutputFormat' is defined but never used       @typescript-eslint/no-unused-vars
+  88:73   error  'StreamProcessingOptions' is defined but never used  @typescript-eslint/no-unused-vars
+  88:98   error  'StreamSourceConfig' is defined but never used       @typescript-eslint/no-unused-vars
+  88:118  error  'StreamOutputConfig' is defined but never used       @typescript-eslint/no-unused-vars
+  88:138  error  'StreamIngestionConfig' is defined but never used    @typescript-eslint/no-unused-vars
+  88:161  error  'StreamIngestionStatus' is defined but never used    @typescript-eslint/no-unused-vars
+  88:184  error  'StreamHealthStatus' is defined but never used       @typescript-eslint/no-unused-vars
+  88:204  error  'StreamIngestionEvent' is defined but never used     @typescript-eslint/no-unused-vars
+  88:226  error  'StreamIngestionStats' is defined but never used     @typescript-eslint/no-unused-vars
+   75:43  error  'TOutput' is defined but never used   @typescript-eslint/no-unused-vars
+  419:41  error  'platform' is defined but never used  @typescript-eslint/no-unused-vars
+  173:43  error  'args' is defined but never used             @typescript-eslint/no-unused-vars
+  241:57  error  'timestamp' is defined but never used        @typescript-eslint/no-unused-vars
+  283:59  error  'timestamp' is defined but never used        @typescript-eslint/no-unused-vars
+  418:23  error  'info' is assigned a value but never used    @typescript-eslint/no-unused-vars
+  421:23  error  'info' is assigned a value but never used    @typescript-eslint/no-unused-vars
+  436:16  error  'handle' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  441:76  error  'data' is defined but never used             @typescript-eslint/no-unused-vars
+  465:41  error  'buffers' is defined but never used          @typescript-eslint/no-unused-vars
+  172:23  error  'info' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  175:23  error  'info' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  182:21  error  'buffers' is defined but never used        @typescript-eslint/no-unused-vars
+  190:76  error  'data' is defined but never used           @typescript-eslint/no-unused-vars
+  214:43  error  'buffers' is defined but never used        @typescript-eslint/no-unused-vars
+  314:23  error  'info' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  317:23  error  'info' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  324:21  error  'buffers' is defined but never used        @typescript-eslint/no-unused-vars
+  332:76  error  'data' is defined but never used           @typescript-eslint/no-unused-vars
+  356:43  error  'buffers' is defined but never used        @typescript-eslint/no-unused-vars
+  457:23  error  'info' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  460:23  error  'info' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  467:21  error  'buffers' is defined but never used        @typescript-eslint/no-unused-vars
+  475:76  error  'data' is defined but never used           @typescript-eslint/no-unused-vars
+  499:43  error  'buffers' is defined but never used        @typescript-eslint/no-unused-vars
+  511:49  error  'args' is defined but never used           @typescript-eslint/no-unused-vars
+  613:43  error  'args' is defined but never used           @typescript-eslint/no-unused-vars
+  737:62  error  'data' is defined but never used           @typescript-eslint/no-unused-vars
+  775:47  error  'options' is defined but never used        @typescript-eslint/no-unused-vars
+  178:43  error  'args' is defined but never used             @typescript-eslint/no-unused-vars
+  245:57  error  'timestamp' is defined but never used        @typescript-eslint/no-unused-vars
+  330:59  error  'timestamp' is defined but never used        @typescript-eslint/no-unused-vars
+  464:23  error  'info' is assigned a value but never used    @typescript-eslint/no-unused-vars
+  467:23  error  'info' is assigned a value but never used    @typescript-eslint/no-unused-vars
+  482:16  error  'handle' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  487:76  error  'data' is defined but never used             @typescript-eslint/no-unused-vars
+  511:40  error  'buffers' is defined but never used          @typescript-eslint/no-unused-vars
+  552:17  error  '_' is defined but never used  @typescript-eslint/no-unused-vars
+  553:24  error  '_' is defined but never used  @typescript-eslint/no-unused-vars
+  519:17  error  'taskId' is assigned a value but never used  @typescript-eslint/no-unused-vars
+   13:13  error  'os' is defined but never used                  @typescript-eslint/no-unused-vars
+  196:19  error  'deviceId' is assigned a value but never used   @typescript-eslint/no-unused-vars
+  527:11  error  'deviceIds' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  97:52  error  'next' is defined but never used  @typescript-eslint/no-unused-vars
+  279:11  error  'responseTimeMs' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  2:16  error  'uuidv4' is defined but never used  @typescript-eslint/no-unused-vars

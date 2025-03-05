@@ -343,7 +343,7 @@ export class AxisProtocol extends AbstractCameraProtocol {
     }
     
     try {
-      let ptzParams = new URLSearchParams();
+      const ptzParams = new URLSearchParams();
       
       switch (command.action) {
         case 'move':

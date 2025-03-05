@@ -5,16 +5,16 @@ import * as path from 'path';
 import WebSocket from 'ws';
 import * as sdpTransform from 'sdp-transform';
 import { v4 as uuidv4 } from 'uuid';
-import { 
-  AbstractCameraProtocol 
+import {
+  AbstractCameraProtocol
 } from '../AbstractCameraProtocol';
-import { 
-  CameraConfig, 
-  CameraCapabilities, 
-  CameraInfo, 
-  ConnectionStatus, 
-  PtzMovement, 
-  StreamOptions, 
+import {
+  CameraConfig,
+  CameraCapabilities,
+  CameraInfo,
+  ConnectionStatus,
+  PtzMovement,
+  StreamOptions,
   StreamProfile,
   CameraEvent
 } from '../interfaces/ICameraProtocol';

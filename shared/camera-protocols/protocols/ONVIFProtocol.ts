@@ -522,7 +522,7 @@ export class ONVIFProtocol extends AbstractCameraProtocol {
    */
   private findProfileByResolution(width: number, height: number): any {
     // Try to find exact match
-    let profile = this.profiles.find(p => {
+    const profile = this.profiles.find(p => {
       const resolution = p.videoEncoderConfiguration?.resolution;
       return resolution && resolution.width === width && resolution.height === height;
     });
