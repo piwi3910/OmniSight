@@ -20,7 +20,7 @@ By participating in this project, you agree to abide by our Code of Conduct. Ple
 1. Fork the repository on GitHub
 2. Clone your fork locally:
    ```
-   git clone https://github.com/yourusername/OmniSight.git
+   git clone https://github.com/piwi3910/OmniSight.git
    cd OmniSight
    ```
 
@@ -44,12 +44,14 @@ By participating in this project, you agree to abide by our Code of Conduct. Ple
 
 OmniSight follows a microservices architecture:
 
-- `services/stream-ingestion`: Handles RTSP stream connections
+- `services/stream-ingestion`: Handles multi-protocol camera stream connections
 - `services/recording`: Manages video recording and storage
-- `services/object-detection`: Processes video frames for detection
+- `services/object-detection`: Processes video frames for detection with hardware acceleration
 - `services/metadata-events`: Stores and manages metadata and events
 - `services/api-gateway`: Unified entry point for frontend and external integrations
 - `services/frontend`: React-based UI
+- `shared/camera-protocols`: Protocol abstraction layer
+- `shared/hardware-acceleration`: Hardware acceleration framework
 
 ## Development Workflow
 
@@ -131,8 +133,15 @@ Example: `feat(recording): add support for MP4 segmentation`
 - Document APIs, configurations, and important concepts
 - Use clear and concise language
 
+## Maintainers
+
+This project is maintained by:
+- Pascal Watteel
+- Email: Pascal@watteel.com
+- GitHub: [https://github.com/piwi3910](https://github.com/piwi3910)
+
 ## Questions?
 
-If you have any questions or need help, please open an issue or contact the maintainers.
+If you have any questions or need help, please open an issue on the [GitHub repository](https://github.com/piwi3910/OmniSight) or contact the maintainer directly at Pascal@watteel.com.
 
 Thank you for contributing to OmniSight!
