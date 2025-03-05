@@ -8,7 +8,7 @@ import {
 } from '../types/camera-types';
 import axios, { AxiosInstance } from 'axios';
 // Import kept for potential future use
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+
 import { parseStringPromise } from 'xml2js';
 
 /**

@@ -24,19 +24,15 @@ import {
   GPUDevice,
   DeviceInitializationOptions,
   // The following imports are unused but kept for documentation purposes
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   AccelerationContext,
   AccelerationSettings,
   AccelerationStatistics,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   HardwareCapability,
   EncodingParameters,
   DecodingParameters,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   ProcessingOperation,
   ProcessingResult,
   DeviceError,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   EmbeddedDeviceInfo,
   MobileAccelerationOptions,
 } from '../../types/hardware-acceleration';

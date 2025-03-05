@@ -99,7 +99,6 @@ export type ErrorLogFunction = (error: Error, traceId: string, req: Request) => 
 export function createErrorHandler(
   logger: Logger
 ): (err: Error, req: Request, res: Response, next: NextFunction) => void {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   return (err: Error, req: Request, res: Response, next: NextFunction) => {
     // Generate a unique trace ID for this error
     const traceId = uuidv4();

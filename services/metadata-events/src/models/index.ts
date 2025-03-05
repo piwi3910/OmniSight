@@ -20,7 +20,7 @@ const DetectedObject = DetectedObjectInit(sequelize, DataTypes);
 const User = UserInit(sequelize, DataTypes);
 
 // Define models object with a simple type
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+
 const models: any = {
   Camera,
   Stream,
@@ -28,11 +28,11 @@ const models: any = {
   Segment,
   Event,
   DetectedObject,
-  User
+  User,
 };
 
 // Set up associations
-Object.keys(models).forEach((modelName) => {
+Object.keys(models).forEach(modelName => {
   if (models[modelName].associate) {
     models[modelName].associate(models);
   }
