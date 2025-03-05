@@ -7,8 +7,8 @@ export interface ErrorResponse {
     code: string;
     message: string;
     traceId?: string;
-    details?: Record<string, any>;
-  }
+    details?: Record<string, unknown>;
+  };
 }
 
 // Standard API error codes
@@ -20,20 +20,20 @@ export enum ErrorCode {
   CONFLICT = 'CONFLICT',
   INTERNAL_ERROR = 'INTERNAL_ERROR',
   SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
-  BAD_GATEWAY = 'BAD_GATEWAY'
+  BAD_GATEWAY = 'BAD_GATEWAY',
 }
 
 // Base error class
 export class ApiError extends Error {
   code: string;
   statusCode: number;
-  details?: Record<string, any>;
+  details?: Record<string, unknown>;
 
   constructor(
     code: string,
     message: string,
     statusCode: number = 500,
-    details?: Record<string, any>
+    details?: Record<string, unknown>
   ) {
     super(message);
     this.name = this.constructor.name;
@@ -46,7 +46,7 @@ export class ApiError extends Error {
 
 // Specific error types
 export class ValidationError extends ApiError {
-  constructor(message: string, details?: Record<string, any>) {
+  constructor(message: string, details?: Record<string, unknown>) {
     super(ErrorCode.VALIDATION_ERROR, message, 400, details);
   }
 }
@@ -65,21 +65,19 @@ export class ForbiddenError extends ApiError {
 
 export class ResourceNotFoundError extends ApiError {
   constructor(resource: string, id?: string) {
-    const message = id
-      ? `${resource} with ID ${id} not found`
-      : `${resource} not found`;
+    const message = id ? `${resource} with ID ${id} not found` : `${resource} not found`;
     super(ErrorCode.RESOURCE_NOT_FOUND, message, 404, { resourceType: resource, resourceId: id });
   }
 }
 
 export class ConflictError extends ApiError {
-  constructor(message: string, details?: Record<string, any>) {
+  constructor(message: string, details?: Record<string, unknown>) {
     super(ErrorCode.CONFLICT, message, 409, details);
   }
 }
 
 export class ServiceUnavailableError extends ApiError {
-  constructor(service: string, details?: Record<string, any>) {
+  constructor(service: string, details?: Record<string, unknown>) {
     super(
       ErrorCode.SERVICE_UNAVAILABLE,
       `${service} service is temporarily unavailable`,
@@ -89,26 +87,31 @@ export class ServiceUnavailableError extends ApiError {
   }
 }
 
+// Logger interface
+export interface Logger {
+  error(message: string, meta?: Record<string, unknown>): void;
+}
+
 // Error logging function type
 export type ErrorLogFunction = (error: Error, traceId: string, req: Request) => void;
 
 // Create error handling middleware
-export function createErrorHandler(logger: any): (err: Error, req: Request, res: Response, next: NextFunction) => void {
+export function createErrorHandler(
+  logger: Logger
+): (err: Error, req: Request, res: Response, next: NextFunction) => void {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   return (err: Error, req: Request, res: Response, next: NextFunction) => {
     // Generate a unique trace ID for this error
     const traceId = uuidv4();
-    
+
     // Extract status code and error code from ApiError, or default values
     const statusCode = err instanceof ApiError ? err.statusCode : 500;
     const errorCode = err instanceof ApiError ? err.code : ErrorCode.INTERNAL_ERROR;
     const details = err instanceof ApiError ? err.details : undefined;
-    
+
     // Prepare error message, sanitizing for non-ApiErrors in production
     const isDev = process.env.NODE_ENV === 'development';
-    const message = 
-      err instanceof ApiError || isDev 
-        ? err.message 
-        : 'An unexpected error occurred';
+    const message = err instanceof ApiError || isDev ? err.message : 'An unexpected error occurred';
 
     // Log the error with trace ID for correlation
     logger.error(`[${traceId}] ${err.message}`, {
@@ -117,7 +120,7 @@ export function createErrorHandler(logger: any): (err: Error, req: Request, res:
       method: req.method,
       errorCode,
       statusCode,
-      stack: isDev ? err.stack : undefined
+      stack: isDev ? err.stack : undefined,
     });
 
     // Send the error response
@@ -125,8 +128,8 @@ export function createErrorHandler(logger: any): (err: Error, req: Request, res:
       error: {
         code: errorCode,
         message: message,
-        traceId: traceId
-      }
+        traceId: traceId,
+      },
     };
 
     // Add details if available
@@ -143,10 +146,10 @@ export function notFoundHandler(req: Request, res: Response): void {
   const errorResponse: ErrorResponse = {
     error: {
       code: ErrorCode.RESOURCE_NOT_FOUND,
-      message: `Route ${req.method} ${req.path} not found`
-    }
+      message: `Route ${req.method} ${req.path} not found`,
+    },
   };
-  
+
   res.status(404).json(errorResponse);
 }
 
