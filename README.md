@@ -111,7 +111,7 @@ For complete API documentation, visit the Swagger docs at `http://localhost:8000
 
 1. Clone the repository:
    ```
-   git clone https://github.com/yourusername/OmniSight.git
+   git clone https://github.com/piwi3910/OmniSight.git
    cd OmniSight
    ```
 
@@ -138,6 +138,13 @@ Detailed deployment instructions can be found in the [Deployment Guide](docs/dep
 ## Contributing
 
 Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+
+## Contact
+
+For questions or support, please contact:
+- Pascal Watteel
+- Email: Pascal@watteel.com
+- GitHub: [https://github.com/piwi3910](https://github.com/piwi3910)
 
 ## License
 
