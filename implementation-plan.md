@@ -1193,3 +1193,12 @@ Core components implemented:
 6. Security testing for all API endpoints
 7. Browser compatibility testing for all players
 8. Load testing for simultaneous streams
+
+## Maintainer Information
+
+This project is maintained by:
+- Pascal Watteel
+- Email: Pascal@watteel.com
+- GitHub: [https://github.com/piwi3910](https://github.com/piwi3910)
+
+For more information or to report issues, please visit the GitHub repository at [https://github.com/piwi3910/OmniSight](https://github.com/piwi3910/OmniSight).
