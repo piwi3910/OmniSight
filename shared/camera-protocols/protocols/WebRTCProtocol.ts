@@ -1,22 +1,14 @@
-import { EventEmitter } from 'events';
 import * as http from 'http';
-import * as fs from 'fs';
-import * as path from 'path';
 import WebSocket from 'ws';
-import * as sdpTransform from 'sdp-transform';
 import { v4 as uuidv4 } from 'uuid';
-import {
-  AbstractCameraProtocol
-} from '../AbstractCameraProtocol';
+import { AbstractCameraProtocol } from '../AbstractCameraProtocol';
 import {
   CameraConfig,
   CameraCapabilities,
   CameraInfo,
-  ConnectionStatus,
   PtzMovement,
   StreamOptions,
   StreamProfile,
-  CameraEvent
 } from '../interfaces/ICameraProtocol';
 
 /**
@@ -30,7 +22,7 @@ enum SignalingMessageType {
   STREAM_RESPONSE = 'stream-response',
   ERROR = 'error',
   CLOSE = 'close',
-  KEEP_ALIVE = 'keep-alive'
+  KEEP_ALIVE = 'keep-alive',
 }
 
 /**
@@ -40,7 +32,7 @@ interface SignalingMessage {
   type: SignalingMessageType;
   sessionId?: string;
   streamId?: string;
-  data?: any;
+  data?: Record<string, unknown>;
   error?: string;
 }
 
@@ -67,7 +59,7 @@ interface IceServer {
 
 /**
  * WebRTC camera protocol implementation
- * 
+ *
  * This class implements the ICameraProtocol interface for WebRTC camera streams.
  * WebRTC provides ultra-low latency streaming with peer-to-peer connections when possible.
  */
@@ -76,12 +68,12 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
    * Protocol identifier
    */
   public readonly protocolId: string = 'webrtc';
-  
+
   /**
    * Protocol name
    */
   public readonly protocolName: string = 'WebRTC';
-  
+
   /**
    * Protocol capabilities
    */
@@ -100,91 +92,93 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
       usesTURN: true,
       usesSTUN: true,
       p2p: true,
-      lowLatency: true
-    }
+      lowLatency: true,
+    },
   };
-  
+
   /**
    * Active stream sessions
    */
   protected activeStreams: Map<string, StreamSession> = new Map();
-  
+
   /**
    * WebSocket server for signaling
-   * Using any type to avoid TypeScript complexities with the WebSocket library
+   * Using any type due to complexity with the WebSocket library's type definitions
+   * A more specific type would require significant refactoring
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private signalingServer: any = null;
-  
+
   /**
    * WebSocket connections by client ID
    */
   private clients: Map<string, WebSocket> = new Map();
-  
+
   /**
    * HTTP server for WebRTC signaling
    */
   private httpServer: http.Server | null = null;
-  
+
   /**
    * RTC stream profiles
    */
   private streamProfiles: StreamProfile[] = [];
-  
+
   /**
    * Camera info cache
    */
   private cameraInfoCache: CameraInfo | null = null;
-  
+
   /**
    * Session timeout duration in milliseconds
    */
   private sessionTimeoutMs: number = 30000; // 30 seconds
-  
+
   /**
    * WebSocket OPEN state constant
    */
   private readonly WS_OPEN: number = 1;
-  
+
   /**
    * Connect to camera
-   * 
+   *
    * @param config Camera configuration
    */
   protected async performConnect(config: CameraConfig): Promise<boolean> {
     try {
       const port = config.webrtcPort || 8433;
-      
+
       // Create default stream profiles if not defined in config
       if (!this.streamProfiles.length) {
         this.createDefaultProfiles();
       }
-      
+
       // Create HTTP server for WebRTC signaling
       this.httpServer = http.createServer();
-      
+
       // Create WebSocket server for signaling
       this.signalingServer = new WebSocket.Server({
         server: this.httpServer,
-        path: '/webrtc-signaling'
+        path: '/webrtc-signaling',
       });
-      
+
       // Set up WebSocket events
       this.signalingServer.on('connection', this.handleConnection.bind(this));
       this.signalingServer.on('error', this.handleError.bind(this));
-      
+
       // Start HTTP server
-      return new Promise((resolve) => {
+      return new Promise(resolve => {
         if (!this.httpServer) {
           resolve(false);
           return;
         }
-        
+
         this.httpServer.listen(port, () => {
           console.log(`WebRTC signaling server started on port ${port}`);
           resolve(true);
         });
-        
-        this.httpServer.on('error', (err) => {
+
+        this.httpServer.on('error', err => {
           console.error('WebRTC signaling server error:', err);
           resolve(false);
         });
@@ -194,7 +188,7 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
       return false;
     }
   }
-  
+
   /**
    * Create default stream profiles
    */
@@ -210,8 +204,8 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
         bitrate: 2000,
         parameters: {
           profile: 'main',
-          level: '4.0'
-        }
+          level: '4.0',
+        },
       },
       {
         id: 'sd',
@@ -222,8 +216,8 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
         bitrate: 1000,
         parameters: {
           profile: 'main',
-          level: '3.1'
-        }
+          level: '3.1',
+        },
       },
       {
         id: 'low',
@@ -234,22 +228,21 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
         bitrate: 500,
         parameters: {
           profile: 'baseline',
-          level: '3.0'
-        }
-      }
+          level: '3.0',
+        },
+      },
     ];
   }
-  
+
   /**
    * Handle new WebSocket connection
-   * 
+   *
    * @param ws WebSocket connection
-   * @param req HTTP request
    */
-  private handleConnection(ws: WebSocket, req: http.IncomingMessage): void {
+  private handleConnection(ws: WebSocket): void {
     const clientId = uuidv4();
     this.clients.set(clientId, ws);
-    
+
     // Set up client events
     ws.on('message', (message: string) => {
       try {
@@ -260,36 +253,34 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
         this.sendErrorToClient(ws, 'Invalid message format');
       }
     });
-    
+
     ws.on('close', () => {
       // Clean up client and associated streams
       this.handleClientDisconnect(clientId);
     });
-    
-    ws.on('error', (error) => {
+
+    ws.on('error', error => {
       console.error('WebSocket client error:', error);
       this.handleClientDisconnect(clientId);
     });
-    
+
     // Send initial connection confirmation
-    ws.send(JSON.stringify({
-      type: 'connection-established',
-      clientId
-    }));
+    ws.send(
+      JSON.stringify({
+        type: 'connection-established',
+        clientId,
+      })
+    );
   }
-  
+
   /**
    * Handle signaling message from client
-   * 
+   *
    * @param clientId Client identifier
    * @param message Signaling message
    * @param ws WebSocket connection
    */
-  private handleSignalingMessage(
-    clientId: string, 
-    message: SignalingMessage, 
-    ws: WebSocket
-  ): void {
+  private handleSignalingMessage(clientId: string, message: SignalingMessage, ws: WebSocket): void {
     // Update last activity time for the session
     if (message.sessionId) {
       const session = this.findSessionBySessionId(message.sessionId);
@@ -297,64 +288,60 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
         this.resetSessionTimeout(session);
       }
     }
-    
+
     // Handle different message types
     switch (message.type) {
       case SignalingMessageType.STREAM_REQUEST:
         this.handleStreamRequest(clientId, message, ws);
         break;
-        
+
       case SignalingMessageType.OFFER:
         // Forward offer to the other peer (not used in this implementation)
         break;
-        
+
       case SignalingMessageType.ANSWER:
-        // Forward answer to the other peer (not used in this implementation) 
+        // Forward answer to the other peer (not used in this implementation)
         break;
-        
+
       case SignalingMessageType.ICE_CANDIDATE:
         // Forward ICE candidate to the other peer (not used in this implementation)
         break;
-        
+
       case SignalingMessageType.CLOSE:
         this.handleCloseRequest(message.sessionId || '', clientId);
         break;
-        
+
       case SignalingMessageType.KEEP_ALIVE:
         // Keep-alive messages just update the timestamp (done above)
         break;
-        
+
       default:
         this.sendErrorToClient(ws, 'Unknown message type');
     }
   }
-  
+
   /**
    * Handle stream request from client
-   * 
+   *
    * @param clientId Client identifier
    * @param message Stream request message
    * @param ws WebSocket connection
    */
-  private handleStreamRequest(
-    clientId: string, 
-    message: SignalingMessage,
-    ws: WebSocket
-  ): void {
+  private handleStreamRequest(clientId: string, message: SignalingMessage, ws: WebSocket): void {
     if (!message.streamId) {
       this.sendErrorToClient(ws, 'Missing streamId in stream request');
       return;
     }
-    
+
     // Find the requested stream
     const streamId = message.streamId;
     const stream = this.activeStreams.get(streamId);
-    
+
     if (!stream) {
       this.sendErrorToClient(ws, `Stream ${streamId} not found`);
       return;
     }
-    
+
     // Create a new session for this client
     const sessionId = uuidv4();
     const session: StreamSession = {
@@ -362,15 +349,15 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
       streamId,
       clientId,
       options: stream.options,
-      lastActivity: Date.now()
+      lastActivity: Date.now(),
     };
-    
+
     // Start timeout for this session
     this.resetSessionTimeout(session);
-    
+
     // Store session
     this.activeStreams.set(sessionId, session);
-    
+
     // Send stream response with session ID
     const responseMessage: SignalingMessage = {
       type: SignalingMessageType.STREAM_RESPONSE,
@@ -378,16 +365,16 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
       streamId,
       data: {
         profile: this.getProfileForStream(stream),
-        iceServers: this.getIceServers()
-      }
+        iceServers: this.getIceServers(),
+      },
     };
-    
+
     ws.send(JSON.stringify(responseMessage));
   }
-  
+
   /**
    * Handle close request from client
-   * 
+   *
    * @param sessionId Session identifier
    * @param clientId Client identifier
    */
@@ -401,16 +388,16 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
       }
     }
   }
-  
+
   /**
    * Handle client disconnect
-   * 
+   *
    * @param clientId Client identifier
    */
   private handleClientDisconnect(clientId: string): void {
     // Remove client
     this.clients.delete(clientId);
-    
+
     // Clean up any associated sessions
     for (const [sessionId, session] of this.activeStreams.entries()) {
       if (session.clientId === clientId) {
@@ -419,43 +406,43 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
       }
     }
   }
-  
+
   /**
    * Handle WebSocket server error
-   * 
+   *
    * @param error Error object
    */
   private handleError(error: Error): void {
     console.error('WebRTC signaling server error:', error);
   }
-  
+
   /**
    * Send error message to client
-   * 
+   *
    * @param ws WebSocket connection
    * @param errorMsg Error message
    */
   private sendErrorToClient(ws: WebSocket, errorMsg: string): void {
     const errorMessage: SignalingMessage = {
       type: SignalingMessageType.ERROR,
-      error: errorMsg
+      error: errorMsg,
     };
-    
+
     ws.send(JSON.stringify(errorMessage));
   }
-  
+
   /**
    * Find session by session ID
-   * 
+   *
    * @param sessionId Session identifier
    */
   private findSessionBySessionId(sessionId: string): StreamSession | undefined {
     return this.activeStreams.get(sessionId);
   }
-  
+
   /**
    * Reset session timeout
-   * 
+   *
    * @param session Stream session
    */
   private resetSessionTimeout(session: StreamSession): void {
@@ -463,59 +450,59 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
     if (session.timeoutHandle) {
       clearTimeout(session.timeoutHandle);
     }
-    
+
     // Update activity timestamp
     session.lastActivity = Date.now();
-    
+
     // Set new timeout
     session.timeoutHandle = setTimeout(() => {
       this.handleSessionTimeout(session);
     }, this.sessionTimeoutMs);
   }
-  
+
   /**
    * Handle session timeout
-   * 
+   *
    * @param session Stream session
    */
   private handleSessionTimeout(session: StreamSession): void {
     const inactivityTime = Date.now() - session.lastActivity;
-    
+
     if (inactivityTime >= this.sessionTimeoutMs) {
       // Remove session
       this.activeStreams.delete(session.id);
       this.cleanupSession(session);
-      
+
       // Notify client if still connected
       const client = session.clientId ? this.clients.get(session.clientId) : undefined;
       if (client && client.readyState === this.WS_OPEN) {
         const message: SignalingMessage = {
           type: SignalingMessageType.CLOSE,
           sessionId: session.id,
-          error: 'Session timeout due to inactivity'
+          error: 'Session timeout due to inactivity',
         };
-        
+
         client.send(JSON.stringify(message));
       }
     }
   }
-  
+
   /**
    * Clean up session resources
-   * 
+   *
    * @param session Stream session
    */
   private cleanupSession(session: StreamSession): void {
     if (session.timeoutHandle) {
       clearTimeout(session.timeoutHandle);
     }
-    
+
     // Additional cleanup as needed for WebRTC resources
   }
-  
+
   /**
    * Get profile for stream
-   * 
+   *
    * @param stream Stream session
    */
   private getProfileForStream(stream: StreamSession): StreamProfile {
@@ -523,7 +510,7 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
       // Find profile by ID
       const profileId = stream.options.profile;
       const profile = this.streamProfiles.find(p => p.id === profileId);
-      
+
       if (profile) {
         return profile;
       }
@@ -531,29 +518,29 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
       // Find profile by resolution
       const targetWidth = stream.options.resolution.width;
       const targetHeight = stream.options.resolution.height;
-      
+
       // Find closest match
       let bestMatch = this.streamProfiles[0];
       let bestDiff = Number.MAX_SAFE_INTEGER;
-      
+
       for (const profile of this.streamProfiles) {
         const width = profile.resolution.width;
         const height = profile.resolution.height;
-        
+
         const diff = Math.abs(width - targetWidth) + Math.abs(height - targetHeight);
         if (diff < bestDiff) {
           bestDiff = diff;
           bestMatch = profile;
         }
       }
-      
+
       return bestMatch;
     }
-    
+
     // Return default profile (first one)
     return this.streamProfiles[0];
   }
-  
+
   /**
    * Get ICE servers configuration
    */
@@ -561,39 +548,39 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
     // Start with default public STUN servers
     const iceServers: IceServer[] = [
       {
-        urls: 'stun:stun.l.google.com:19302'
+        urls: 'stun:stun.l.google.com:19302',
       },
       {
-        urls: 'stun:stun1.l.google.com:19302'
-      }
+        urls: 'stun:stun1.l.google.com:19302',
+      },
     ];
-    
+
     // Add custom ICE servers from config if available
     if (this.config?.webrtcConfig?.iceServers) {
       return this.config.webrtcConfig.iceServers;
     }
-    
+
     // Add custom TURN servers if provided in config
     if (this.config?.webrtcConfig?.turnServer) {
       iceServers.push({
         urls: `turn:${this.config.webrtcConfig.turnServer}`,
         username: this.config.webrtcConfig.turnUsername || '',
-        credential: this.config.webrtcConfig.turnCredential || ''
+        credential: this.config.webrtcConfig.turnCredential || '',
       });
     }
-    
+
     // Add custom STUN servers if provided
     if (this.config?.webrtcConfig?.stunServers) {
       for (const stunServer of this.config.webrtcConfig.stunServers) {
         iceServers.push({
-          urls: `stun:${stunServer}`
+          urls: `stun:${stunServer}`,
         });
       }
     }
-    
+
     return iceServers;
   }
-  
+
   /**
    * Disconnect from camera
    */
@@ -602,13 +589,13 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
     for (const session of this.activeStreams.values()) {
       this.cleanupSession(session);
     }
-    
+
     this.activeStreams.clear();
     this.clients.clear();
-    
+
     // Close signaling server
     if (this.signalingServer) {
-      return new Promise((resolve) => {
+      return new Promise(resolve => {
         if (this.signalingServer) {
           this.signalingServer.close(() => {
             // Close HTTP server
@@ -628,48 +615,48 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
         }
       });
     }
-    
+
     return Promise.resolve();
   }
-  
+
   /**
    * Start camera stream
-   * 
+   *
    * @param options Stream options
    */
   protected async performStartStream(options?: StreamOptions): Promise<string> {
     // Generate stream ID
     const streamId = `stream-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-    
+
     // Create stream session without client (will be added when client connects)
     const session: StreamSession = {
       id: streamId, // Use streamId as sessionId initially
       streamId,
       options,
-      lastActivity: Date.now()
+      lastActivity: Date.now(),
     };
-    
+
     // Store stream
     this.activeStreams.set(streamId, session);
-    
+
     return streamId;
   }
-  
+
   /**
    * Stop camera stream
-   * 
+   *
    * @param streamId Stream identifier
    */
   protected async performStopStream(streamId: string): Promise<void> {
     const stream = this.activeStreams.get(streamId);
-    
+
     if (stream) {
       // Clean up session
       this.cleanupSession(stream);
-      
+
       // Remove stream
       this.activeStreams.delete(streamId);
-      
+
       // Notify clients if needed
       if (stream.clientId) {
         const client = this.clients.get(stream.clientId);
@@ -677,15 +664,15 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
           const message: SignalingMessage = {
             type: SignalingMessageType.CLOSE,
             streamId,
-            sessionId: stream.id
+            sessionId: stream.id,
           };
-          
+
           client.send(JSON.stringify(message));
         }
       }
     }
   }
-  
+
   /**
    * Get camera information
    */
@@ -693,7 +680,7 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
     if (this.cameraInfoCache) {
       return this.cameraInfoCache;
     }
-    
+
     // For WebRTC, we don't have a standard way to get camera info
     // We'll just return basic info
     const info: CameraInfo = {
@@ -702,24 +689,25 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
       firmwareVersion: '1.0.0',
       additionalInfo: {
         protocol: this.protocolName,
-        signalingPort: this.config?.webrtcPort || 8433
-      }
+        signalingPort: this.config?.webrtcPort || 8433,
+      },
     };
-    
+
     this.cameraInfoCache = info;
     return info;
   }
-  
+
   /**
    * Get available stream profiles
    */
   public async getAvailableStreams(): Promise<StreamProfile[]> {
     return this.streamProfiles;
   }
-  
+
   /**
    * Get protocol-specific options
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   public getProtocolOptions(): Record<string, any> {
     return {
       signalingPort: this.config?.webrtcPort || 8433,
@@ -727,40 +715,43 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
       profiles: this.streamProfiles.map(p => ({
         id: p.id,
         name: p.name,
-        resolution: p.resolution
-      }))
+        resolution: p.resolution,
+      })),
     };
   }
-  
+
   /**
    * Set protocol-specific options
-   * 
+   *
    * @param options Protocol options
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   public async setProtocolOptions(options: Record<string, any>): Promise<void> {
     // Update ICE servers if provided
     if (options.iceServers && Array.isArray(options.iceServers)) {
       if (this.config && !this.config.webrtcConfig) {
         this.config.webrtcConfig = {};
       }
-      
+
       if (this.config && this.config.webrtcConfig) {
         // Add direct ICE servers config
         this.config.webrtcConfig.iceServers = options.iceServers;
-        
+
         // Attempt to extract TURN server info for backward compatibility
-        const turnServer = options.iceServers.find((s: any) => 
-          s.urls && (
-            (typeof s.urls === 'string' && s.urls.startsWith('turn:')) ||
-            (Array.isArray(s.urls) && s.urls.some((url: string) => url.startsWith('turn:')))
-          )
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const turnServer = options.iceServers.find(
+          (s: any) =>
+            s.urls &&
+            ((typeof s.urls === 'string' && s.urls.startsWith('turn:')) ||
+              (Array.isArray(s.urls) && s.urls.some((url: string) => url.startsWith('turn:'))))
         );
-        
+
         if (turnServer) {
-          const turnUrl = typeof turnServer.urls === 'string' ? 
-            turnServer.urls : 
-            turnServer.urls.find((url: string) => url.startsWith('turn:'));
-            
+          const turnUrl =
+            typeof turnServer.urls === 'string'
+              ? turnServer.urls
+              : turnServer.urls.find((url: string) => url.startsWith('turn:'));
+
           if (turnUrl) {
             this.config.webrtcConfig.turnServer = turnUrl.replace('turn:', '');
             this.config.webrtcConfig.turnUsername = turnServer.username || '';
@@ -769,73 +760,78 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
         }
       }
     }
-    
+
     // Update stream profiles if provided
     if (options.profiles && Array.isArray(options.profiles)) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       this.streamProfiles = options.profiles.map((p: any) => ({
         id: p.id || 'default',
         name: p.name || 'Default Profile',
         encoding: p.encoding || 'h264',
         resolution: {
           width: p.resolution?.width || 640,
-          height: p.resolution?.height || 480
+          height: p.resolution?.height || 480,
         },
         frameRate: p.frameRate || 30,
         bitrate: p.bitrate || 1000,
-        parameters: p.parameters || {}
+        parameters: p.parameters || {},
       }));
     }
   }
-  
+
   /**
    * Test connection to camera
-   * 
+   *
    * @param config Camera configuration
    */
   protected async performTestConnection(config: CameraConfig): Promise<boolean> {
     const port = config.webrtcPort || 8433;
-    
+
     // Simple port check to see if we can bind
-    return new Promise((resolve) => {
+    return new Promise(resolve => {
       try {
         const server = http.createServer();
-        
+
         server.once('error', () => {
           // Port is in use or not available
           resolve(false);
         });
-        
+
         server.once('listening', () => {
           // Port is available
           server.close(() => {
             resolve(true);
           });
         });
-        
+
         // Try to listen on the port
         server.listen(port);
-      } catch (error) {
+      } catch (
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        _
+      ) {
+        // Any error means the connection test failed
         resolve(false);
       }
     });
   }
-  
+
   /**
    * Get a frame from camera (not directly supported by WebRTC)
    */
   public async getFrame(): Promise<Uint8Array> {
     throw new Error('WebRTC protocol does not support direct frame capture. Use a stream instead.');
   }
-  
+
   /**
    * Create client HTML for embedding WebRTC stream
-   * 
+   *
    * @param streamId Stream identifier
    */
   public createClientEmbedHtml(streamId: string): string {
     const signalingPort = this.config?.webrtcPort || 8433;
     const host = this.config?.host || 'localhost';
-    
+
     return `
 <!DOCTYPE html>
 <html>
@@ -1150,39 +1146,44 @@ export class WebRTCProtocol extends AbstractCameraProtocol {
 </html>
 `;
   }
-  
+
   /**
    * Move camera (not supported in this implementation)
    */
-  protected async performMove(movement: PtzMovement): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  protected async performMove(_movement: PtzMovement): Promise<void> {
     throw new Error('WebRTC protocol does not support PTZ controls in this implementation');
   }
-  
+
   /**
    * Go to preset (not supported in this implementation)
    */
-  protected async performGotoPreset(presetId: string): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  protected async performGotoPreset(_presetId: string): Promise<void> {
     throw new Error('WebRTC protocol does not support PTZ presets in this implementation');
   }
-  
+
   /**
    * Save preset (not supported in this implementation)
    */
-  protected async performSavePreset(presetName: string): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  protected async performSavePreset(_presetName: string): Promise<string> {
     throw new Error('WebRTC protocol does not support PTZ presets in this implementation');
   }
-  
+
   /**
    * Subscribe to camera events (not supported in this implementation)
    */
-  protected async performSubscribeToEvents(eventTypes: string[]): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  protected async performSubscribeToEvents(_eventTypes: string[]): Promise<string> {
     throw new Error('WebRTC protocol does not support event subscription in this implementation');
   }
-  
+
   /**
    * Unsubscribe from camera events (not supported in this implementation)
    */
-  protected async performUnsubscribeFromEvents(subscriptionId: string): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  protected async performUnsubscribeFromEvents(_subscriptionId: string): Promise<void> {
     throw new Error('WebRTC protocol does not support event subscription in this implementation');
   }
 }
