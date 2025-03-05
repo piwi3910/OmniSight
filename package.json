@@ -15,6 +15,7 @@
     "doc": "docs"
   },
   "devDependencies": {
+    "@eslint/js": "^9.21.0",
     "@typescript-eslint/eslint-plugin": "^8.26.0",
     "@typescript-eslint/parser": "^8.26.0",
     "eslint": "^9.21.0",
@@ -22,12 +23,13 @@
     "eslint-plugin-prettier": "^5.2.3",
     "husky": "^9.1.7",
     "lint-staged": "^15.4.3",
-    "prettier": "^3.5.3"
+    "prettier": "^3.5.3",
+    "typescript-eslint": "^8.26.0"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "lint": "eslint \"**/*.{ts,tsx}\" --ignore-pattern node_modules/",
-    "lint:fix": "eslint \"**/*.{ts,tsx}\" --fix --ignore-pattern node_modules/",
+    "lint": "eslint --config eslint.config.mjs \"**/*.{ts,tsx,js,jsx}\" --max-warnings 100",
+    "lint:fix": "eslint --config eslint.config.mjs \"**/*.{ts,tsx,js,jsx}\" --fix --max-warnings 100",
     "format": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\" --ignore-path .gitignore",
     "format:fix": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\" --ignore-path .gitignore",
     "prepare": "husky"
