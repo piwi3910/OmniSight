@@ -1,0 +1,60 @@
+#!/bin/bash
+# Pre-commit hook to run tests on staged files
+
+# Get all staged .ts and .tsx files that are not test files
+STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.tsx?$' | grep -v "\.test\.tsx?$" | grep -v "__tests__" | grep -v "__mocks__")
+
+if [ "$STAGED_FILES" = "" ]; then
+  echo "No TypeScript files staged for commit. Skipping tests."
+  exit 0
+fi
+
+echo "Running tests for services with changes..."
+
+# Find which services have changes
+SERVICES_WITH_CHANGES=""
+for FILE in $STAGED_FILES; do
+  SERVICE_DIR=$(echo $FILE | grep -o "services/[^/]*" | head -1)
+  if [ "$SERVICE_DIR" != "" ]; then
+    SERVICES_WITH_CHANGES="$SERVICES_WITH_CHANGES $SERVICE_DIR"
+  fi
+done
+
+# Remove duplicates
+SERVICES_WITH_CHANGES=$(echo $SERVICES_WITH_CHANGES | tr ' ' '\n' | sort -u | tr '\n' ' ')
+
+# Run tests for changed services
+EXIT_CODE=0
+for SERVICE in $SERVICES_WITH_CHANGES; do
+  if [ -d "$SERVICE" ]; then
+    echo "Running tests for $SERVICE..."
+    cd $SERVICE
+    npm test -- --findRelatedTests $(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.tsx?$' | grep -v "$SERVICE" | xargs)
+    TEST_EXIT_CODE=$?
+    if [ $TEST_EXIT_CODE -ne 0 ]; then
+      EXIT_CODE=$TEST_EXIT_CODE
+    fi
+    cd - > /dev/null
+  fi
+done
+
+# Run shared library tests if there are changes in shared folder
+if echo "$STAGED_FILES" | grep -q "shared/"; then
+  echo "Running tests for shared library..."
+  cd shared
+  npm test
+  TEST_EXIT_CODE=$?
+  if [ $TEST_EXIT_CODE -ne 0 ]; then
+    EXIT_CODE=$TEST_EXIT_CODE
+  fi
+  cd - > /dev/null
+fi
+
+if [ $EXIT_CODE -ne 0 ]; then
+  echo "❌ Tests failed. Please fix the issues before committing."
+  exit 1
+else
+  echo "✅ All tests passed!"
+fi
+
+exit 0
