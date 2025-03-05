@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "baseUrl": ".",
+    "paths": {
+      "*": ["node_modules/*"]
+    }
+  },
+  "include": ["shared/**/*"],
+  "exclude": ["node_modules", "dist", "services/**/node_modules"],
+  "references": [
+    { "path": "./services/api-gateway" },
+    { "path": "./services/frontend" },
+    { "path": "./services/metadata-events" },
+    { "path": "./services/object-detection" },
+    { "path": "./services/recording" },
+    { "path": "./services/stream-ingestion" }
+  ]
+}
