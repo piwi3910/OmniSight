@@ -22,19 +22,34 @@ import {
 
 import {
   GPUDevice,
+  DeviceInitializationOptions,
+  // The following imports are unused but kept for documentation purposes
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   AccelerationContext,
   AccelerationSettings,
   AccelerationStatistics,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   HardwareCapability,
-  DeviceInitializationOptions,
   EncodingParameters,
   DecodingParameters,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   ProcessingOperation,
   ProcessingResult,
   DeviceError,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   EmbeddedDeviceInfo,
   MobileAccelerationOptions,
 } from '../../types/hardware-acceleration';
+
+/**
+ * Model information interface for hardware acceleration providers
+ */
+interface ModelInfo {
+  path: string;
+  inputs: Record<string, { shape: number[]; dtype: string }>;
+  outputs: Record<string, { shape: number[]; dtype: string }>;
+  options?: unknown;
+}
 
 /**
  * Google Edge TPU operations for ML acceleration
@@ -131,8 +146,7 @@ interface WebNNOperations {
  */
 class MockEdgeTpuOperations implements EdgeTpuOperations {
   private initialized = false;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private models = new Map<number, any>();
+  private models = new Map<number, ModelInfo>();
   private nextHandle = 1;
 
   async initialize(): Promise<boolean> {
@@ -198,17 +212,17 @@ class MockEdgeTpuOperations implements EdgeTpuOperations {
 
     // Allocate buffers for each input and output
     const allocatedBuffers: Record<string, number> = {};
-    for (const [name, info] of Object.entries(model.inputs)) {
+    for (const [name, _info] of Object.entries(model.inputs)) {
       allocatedBuffers[name] = this.nextHandle++;
     }
-    for (const [name, info] of Object.entries(model.outputs)) {
+    for (const [name, _info] of Object.entries(model.outputs)) {
       allocatedBuffers[name] = this.nextHandle++;
     }
 
     return allocatedBuffers;
   }
 
-  async freeBuffers(buffers: Record<string, number>): Promise<void> {
+  async freeBuffers(_buffers: Record<string, number>): Promise<void> {
     if (!this.initialized) {
       throw new Error('Edge TPU not initialized');
     }
@@ -219,7 +233,7 @@ class MockEdgeTpuOperations implements EdgeTpuOperations {
   async setInputTensor(
     buffers: Record<string, number>,
     inputName: string,
-    data: ArrayBuffer
+    _data: ArrayBuffer
   ): Promise<void> {
     if (!this.initialized) {
       throw new Error('Edge TPU not initialized');
@@ -244,7 +258,7 @@ class MockEdgeTpuOperations implements EdgeTpuOperations {
     return new ArrayBuffer(1001); // Mock classification result
   }
 
-  async runInference(modelHandle: number, buffers: Record<string, number>): Promise<void> {
+  async runInference(modelHandle: number, _buffers: Record<string, number>): Promise<void> {
     if (!this.initialized) {
       throw new Error('Edge TPU not initialized');
     }
@@ -293,8 +307,7 @@ class MockEdgeTpuOperations implements EdgeTpuOperations {
 
 class MockRockchipNpuOperations implements RockchipNpuOperations {
   private initialized = false;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private models = new Map<number, any>();
+  private models = new Map<number, ModelInfo>();
   private nextHandle = 1;
 
   async initialize(): Promise<boolean> {
@@ -316,7 +329,7 @@ class MockRockchipNpuOperations implements RockchipNpuOperations {
     }
   }
 
-  async loadModel(modelPath: string, options?: any): Promise<number> {
+  async loadModel(modelPath: string, options?: DeviceInitializationOptions): Promise<number> {
     if (!this.initialized) {
       throw new Error('Rockchip NPU not initialized');
     }
@@ -361,17 +374,17 @@ class MockRockchipNpuOperations implements RockchipNpuOperations {
 
     // Allocate buffers for each input and output
     const allocatedBuffers: Record<string, number> = {};
-    for (const [name, info] of Object.entries(model.inputs)) {
+    for (const [name, _info] of Object.entries(model.inputs)) {
       allocatedBuffers[name] = this.nextHandle++;
     }
-    for (const [name, info] of Object.entries(model.outputs)) {
+    for (const [name, _info] of Object.entries(model.outputs)) {
       allocatedBuffers[name] = this.nextHandle++;
     }
 
     return allocatedBuffers;
   }
 
-  async freeBuffers(buffers: Record<string, number>): Promise<void> {
+  async freeBuffers(_buffers: Record<string, number>): Promise<void> {
     if (!this.initialized) {
       throw new Error('Rockchip NPU not initialized');
     }
@@ -382,7 +395,7 @@ class MockRockchipNpuOperations implements RockchipNpuOperations {
   async setInputTensor(
     buffers: Record<string, number>,
     inputName: string,
-    data: ArrayBuffer
+    _data: ArrayBuffer
   ): Promise<void> {
     if (!this.initialized) {
       throw new Error('Rockchip NPU not initialized');
@@ -407,7 +420,7 @@ class MockRockchipNpuOperations implements RockchipNpuOperations {
     return new ArrayBuffer(4000); // 1000 float32 values (4 bytes each)
   }
 
-  async runInference(modelHandle: number, buffers: Record<string, number>): Promise<void> {
+  async runInference(modelHandle: number, _buffers: Record<string, number>): Promise<void> {
     if (!this.initialized) {
       throw new Error('Rockchip NPU not initialized');
     }
@@ -458,8 +471,7 @@ class MockRockchipNpuOperations implements RockchipNpuOperations {
 
 class MockHexagonDspOperations implements HexagonDspOperations {
   private initialized = false;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private models = new Map<number, any>();
+  private models = new Map<number, ModelInfo>();
   private nextHandle = 1;
 
   async initialize(): Promise<boolean> {
@@ -481,7 +493,7 @@ class MockHexagonDspOperations implements HexagonDspOperations {
     }
   }
 
-  async loadModel(modelPath: string, options?: any): Promise<number> {
+  async loadModel(modelPath: string, options?: DeviceInitializationOptions): Promise<number> {
     if (!this.initialized) {
       throw new Error('Hexagon DSP not initialized');
     }
@@ -526,17 +538,17 @@ class MockHexagonDspOperations implements HexagonDspOperations {
 
     // Allocate buffers for each input and output
     const allocatedBuffers: Record<string, number> = {};
-    for (const [name, info] of Object.entries(model.inputs)) {
+    for (const [name, _info] of Object.entries(model.inputs)) {
       allocatedBuffers[name] = this.nextHandle++;
     }
-    for (const [name, info] of Object.entries(model.outputs)) {
+    for (const [name, _info] of Object.entries(model.outputs)) {
       allocatedBuffers[name] = this.nextHandle++;
     }
 
     return allocatedBuffers;
   }
 
-  async freeBuffers(buffers: Record<string, number>): Promise<void> {
+  async freeBuffers(_buffers: Record<string, number>): Promise<void> {
     if (!this.initialized) {
       throw new Error('Hexagon DSP not initialized');
     }
@@ -547,7 +559,7 @@ class MockHexagonDspOperations implements HexagonDspOperations {
   async setInputTensor(
     buffers: Record<string, number>,
     inputName: string,
-    data: ArrayBuffer
+    _data: ArrayBuffer
   ): Promise<void> {
     if (!this.initialized) {
       throw new Error('Hexagon DSP not initialized');
@@ -572,7 +584,7 @@ class MockHexagonDspOperations implements HexagonDspOperations {
     return new ArrayBuffer(4000); // 1000 float32 values (4 bytes each)
   }
 
-  async runInference(modelHandle: number, buffers: Record<string, number>): Promise<void> {
+  async runInference(modelHandle: number, _buffers: Record<string, number>): Promise<void> {
     if (!this.initialized) {
       throw new Error('Hexagon DSP not initialized');
     }
@@ -584,7 +596,7 @@ class MockHexagonDspOperations implements HexagonDspOperations {
     await new Promise(resolve => setTimeout(resolve, 8)); // Simulate work
   }
 
-  async executeVectorKernel(kernelName: string, args: unknown[]): Promise<void> {
+  async executeVectorKernel(kernelName: string, _args: unknown[]): Promise<void> {
     if (!this.initialized) {
       throw new Error('Hexagon DSP not initialized');
     }
@@ -711,7 +723,7 @@ class MockMaliGpuOperations implements MaliGpuOperations {
     // In a real implementation, this would copy data from GPU memory
   }
 
-  async executeKernel(kernelName: string, args: unknown[]): Promise<void> {
+  async executeKernel(kernelName: string, _args: unknown[]): Promise<void> {
     if (!this.initialized) {
       throw new Error('Mali GPU not initialized');
     }
@@ -895,7 +907,7 @@ class MockWebNNOperations implements WebNNOperations {
     return descriptors;
   }
 
-  async setInputOperand(networkHandle: number, name: string, data: ArrayBuffer): Promise<void> {
+  async setInputOperand(networkHandle: number, name: string, _data: ArrayBuffer): Promise<void> {
     if (!this.initialized) {
       throw new Error('WebNN not initialized');
     }
@@ -981,7 +993,7 @@ class MockWebNNOperations implements WebNNOperations {
 
   async compileNetwork(
     networkHandle: number,
-    options?: DeviceInitializationOptions
+    _options?: DeviceInitializationOptions
   ): Promise<void> {
     if (!this.initialized) {
       throw new Error('WebNN not initialized');
@@ -1348,8 +1360,13 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
   /**
    * Execute an Edge TPU inference task
    */
-  private async executeEdgeTpuTask(input: any): Promise<any> {
-    const { modelPath, inputData } = input;
+  private async executeEdgeTpuTask(input: unknown): Promise<unknown> {
+    if (!input || typeof input !== 'object') {
+      throw new Error('Invalid input for Edge TPU task');
+    }
+
+    const inputObj = input as { modelPath: string; inputData: Record<string, ArrayBuffer> };
+    const { modelPath, inputData } = inputObj;
 
     // Load model
     const modelHandle = await this.edgeTpu.loadModel(modelPath);
@@ -1387,8 +1404,17 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
   /**
    * Execute a Rockchip NPU inference task
    */
-  private async executeRockchipNpuTask(input: any): Promise<any> {
-    const { modelPath, inputData, options } = input;
+  private async executeRockchipNpuTask(input: unknown): Promise<unknown> {
+    if (!input || typeof input !== 'object') {
+      throw new Error('Invalid input for Rockchip NPU task');
+    }
+
+    const inputObj = input as {
+      modelPath: string;
+      inputData: Record<string, ArrayBuffer>;
+      options?: DeviceInitializationOptions;
+    };
+    const { modelPath, inputData, options } = inputObj;
 
     // Load model
     const modelHandle = await this.rockchipNpu.loadModel(modelPath, options);
@@ -1426,8 +1452,18 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
   /**
    * Execute a Hexagon DSP task
    */
-  private async executeHexagonDspTask(input: any): Promise<any> {
-    const { modelPath, inputData, options, vectorKernel } = input;
+  private async executeHexagonDspTask(input: unknown): Promise<unknown> {
+    if (!input || typeof input !== 'object') {
+      throw new Error('Invalid input for Hexagon DSP task');
+    }
+
+    const inputObj = input as {
+      modelPath: string;
+      inputData: Record<string, ArrayBuffer>;
+      options?: DeviceInitializationOptions;
+      vectorKernel?: { name: string; args: unknown[] };
+    };
+    const { modelPath, inputData, options, vectorKernel } = inputObj;
 
     // If it's a vector kernel operation
     if (vectorKernel) {
@@ -1435,8 +1471,12 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
       return { status: 'success' };
     }
 
-    // Otherwise it's a model inference task
-    // Load model
+    // Input validation for model inference
+    if (!modelPath || !inputData) {
+      throw new Error('Missing required parameters for Hexagon DSP task');
+    }
+
+    // Load model for inference task
     const modelHandle = await this.hexagonDsp.loadModel(modelPath, options);
 
     try {
@@ -1472,8 +1512,23 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
   /**
    * Execute a Mali GPU task
    */
-  private async executeMaliGpuTask(input: any, taskType: AccelerationTaskType): Promise<any> {
-    const { image, params } = input;
+  private async executeMaliGpuTask(
+    input: unknown,
+    taskType: AccelerationTaskType
+  ): Promise<unknown> {
+    if (!input || typeof input !== 'object') {
+      throw new Error('Invalid input for Mali GPU task');
+    }
+
+    const inputObj = input as {
+      image: ArrayBuffer;
+      params: unknown;
+    };
+    const { image, params } = inputObj;
+
+    if (!image) {
+      throw new Error('Missing required image data for Mali GPU task');
+    }
 
     // Allocate device memory
     const inputPtr = await this.maliGpu.allocateMemory(image.byteLength);
@@ -1522,8 +1577,21 @@ export class MobileEmbeddedAccelerationProvider implements AccelerationProvider 
   /**
    * Execute a WebNN task
    */
-  private async executeWebNNTask(input: any): Promise<any> {
-    const { modelDefinition, inputData, options } = input;
+  private async executeWebNNTask(input: unknown): Promise<unknown> {
+    if (!input || typeof input !== 'object') {
+      throw new Error('Invalid input for WebNN task');
+    }
+
+    const inputObj = input as {
+      modelDefinition: unknown;
+      inputData: Record<string, ArrayBuffer>;
+      options?: DeviceInitializationOptions;
+    };
+    const { modelDefinition, inputData, options } = inputObj;
+
+    if (!modelDefinition || !inputData) {
+      throw new Error('Missing required parameters for WebNN task');
+    }
 
     // Create neural network
     const networkHandle = await this.webnn.createNeuralNetwork(modelDefinition);

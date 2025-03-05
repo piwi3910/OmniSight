@@ -8,7 +8,24 @@ export default [
   prettierConfig,
   {
     files: ['**/*.{ts,tsx,js,jsx}'],
-    ignores: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/*.d.ts'],
+    ignores: [
+      // Build output
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/build/**',
+      '**/*.d.ts',
+      
+      // Generated files
+      '**/.next/**',
+      '**/.nuxt/**',
+      '**/coverage/**',
+      
+      // Third-party code
+      '/services/**/vendor/**',
+      
+      // Configuration files
+      '**/.eslintrc.js'
+    ],
     languageOptions: {
       ecmaVersion: 2020,
       sourceType: 'module',
