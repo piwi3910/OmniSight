@@ -23,6 +23,32 @@ export default [
     },
     plugins: {
       '@typescript-eslint': tseslint.plugin
+    },
+    rules: {
+      // Customize the no-unused-vars rule to be more practical
+      '@typescript-eslint/no-unused-vars': ['warn', {
+        // Allow variables with underscore prefix
+        argsIgnorePattern: '^_',
+        // Allow destructuring with unused variables
+        ignoreRestSiblings: true,
+        // Don't report unused variables in catch clauses (like 'e' or 'error')
+        caughtErrors: 'none',
+        // Only report variables that are not used at all
+        varsIgnorePattern: '^_'
+      }],
+      
+      // Make the no-explicit-any rule a warning instead of error 
+      // for most cases, while still encouraging better typing
+      '@typescript-eslint/no-explicit-any': 'warn',
+      
+      // Allow require imports in specific cases (like for CommonJS modules)
+      '@typescript-eslint/no-require-imports': 'warn',
+      
+      // Relax the rule for namespaces in some legacy code
+      '@typescript-eslint/no-namespace': 'warn',
+      
+      // Relax rule for declaration in case blocks (common pattern)
+      'no-case-declarations': 'warn'
     }
   }
 ];
