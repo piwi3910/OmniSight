@@ -1,6 +1,14 @@
 import { AbstractCameraProtocol, Logger } from '../AbstractCameraProtocol';
-import { CameraCapabilities, CameraEvent, CameraInfo, CameraPreset, ConnectionStatus, PTZCommand, StreamSettings, VideoFrame } from '../types/camera-types';
+import {
+  CameraPreset,
+  ConnectionStatus,
+  PTZCommand,
+  StreamSettings,
+  VideoFrame,
+} from '../types/camera-types';
 import axios, { AxiosInstance } from 'axios';
+// Import kept for potential future use
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { parseStringPromise } from 'xml2js';
 
 /**
@@ -9,15 +17,17 @@ import { parseStringPromise } from 'xml2js';
  */
 export class AxisProtocol extends AbstractCameraProtocol {
   private axiosInstance: AxiosInstance;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private deviceInfo: any = null;
   private logger: Logger;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private subscriptions: Map<string, any> = new Map();
 
   // Protocol identification
   get protocolId(): string {
     return 'axis';
   }
-  
+
   get protocolName(): string {
     return 'Axis VAPIX';
   }
@@ -37,21 +47,21 @@ export class AxisProtocol extends AbstractCameraProtocol {
       port: config.port || 80,
       manufacturer: 'Axis',
       username: config.username,
-      password: config.password
+      password: config.password,
     });
 
     this.logger = config.logger;
-    
+
     // Create HTTP client for camera API
     this.axiosInstance = axios.create({
       baseURL: `${config.https ? 'https' : 'http'}://${config.host}:${config.port || 80}`,
       auth: {
         username: config.username,
-        password: config.password
+        password: config.password,
       },
-      timeout: 10000
+      timeout: 10000,
     });
-    
+
     // Initialize capabilities to all false
     this.capabilities = {
       ptz: false,
@@ -64,7 +74,7 @@ export class AxisProtocol extends AbstractCameraProtocol {
       ioPorts: false,
       privacyMask: false,
       configuration: false,
-      wdr: false
+      wdr: false,
     };
   }
 
@@ -75,48 +85,48 @@ export class AxisProtocol extends AbstractCameraProtocol {
     try {
       // Get device information using VAPIX API
       const deviceInfoResponse = await this.axiosInstance.get('/axis-cgi/serverreport.cgi');
-      
+
       if (deviceInfoResponse.status === 200) {
         this.deviceInfo = this.parseServerReport(deviceInfoResponse.data);
-        
+
         // Set camera metadata
         if (this.deviceInfo.DeviceSerialNumber) {
           this.metadata.serialNumber = this.deviceInfo.DeviceSerialNumber;
         }
-        
+
         if (this.deviceInfo.DeviceModel) {
           this.metadata.model = this.deviceInfo.DeviceModel;
           this.metadata.name = `Axis ${this.deviceInfo.DeviceModel}`;
         }
-        
+
         if (this.deviceInfo.FirmwareVersion) {
           this.metadata.firmwareVersion = this.deviceInfo.FirmwareVersion;
         }
-        
+
         // Get capabilities
         await this.fetchCapabilities();
-        
-        this.logger.info(`Connected to Axis camera: ${this.metadata.name}`, { 
+
+        this.logger.info(`Connected to Axis camera: ${this.metadata.name}`, {
           cameraId: this.metadata.id,
-          model: this.metadata.model
+          model: this.metadata.model,
         });
-        
+
         return {
           connected: true,
-          error: null
+          error: null,
         };
       } else {
         throw new Error(`Failed to connect: ${deviceInfoResponse.statusText}`);
       }
     } catch (error) {
-      this.logger.error('Error connecting to Axis camera', { 
+      this.logger.error('Error connecting to Axis camera', {
         cameraId: this.metadata.id,
-        error 
+        error,
       });
-      
+
       return {
         connected: false,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : 'Unknown error',
       };
     }
   }
@@ -126,8 +136,8 @@ export class AxisProtocol extends AbstractCameraProtocol {
    */
   async disconnect(): Promise<void> {
     // No explicit disconnect needed for HTTP API
-    this.logger.info(`Disconnected from Axis camera: ${this.metadata.name}`, { 
-      cameraId: this.metadata.id 
+    this.logger.info(`Disconnected from Axis camera: ${this.metadata.name}`, {
+      cameraId: this.metadata.id,
     });
   }
 
@@ -138,37 +148,37 @@ export class AxisProtocol extends AbstractCameraProtocol {
     try {
       const buffer = await this.getSnapshot(streamId);
       if (!buffer) return null;
-      
+
       // Try to get resolution from parameters
       let width = 1280;
       let height = 720;
-      
+
       // If no parameters, get from stream settings
       if (!width || !height) {
         try {
           const streams = await this.getAvailableStreams();
-          const stream = streams.find(s => streamId ? s.id === streamId : true);
+          const stream = streams.find(s => (streamId ? s.id === streamId : true));
           if (stream) {
             width = stream.resolution.width;
             height = stream.resolution.height;
           }
-        } catch (e) {
+        } catch {
           // Use defaults if we can't get stream settings
         }
       }
-      
+
       return {
         data: buffer,
         timestamp: Date.now(),
         width,
         height,
-        format: 'jpeg'
+        format: 'jpeg',
       };
     } catch (error) {
-      this.logger.error('Error getting frame', { 
+      this.logger.error('Error getting frame', {
         cameraId: this.metadata.id,
         streamId,
-        error
+        error,
       });
       return null;
     }
@@ -182,24 +192,26 @@ export class AxisProtocol extends AbstractCameraProtocol {
       // Axis cameras have several standard streams
       // We'll create entries for MJPEG, H.264, and snapshot
       const streams: StreamSettings[] = [];
-      
+
       // Get available video sources
-      const mediaResponse = await this.axiosInstance.get('/axis-cgi/param.cgi?action=list&group=Properties.Image.Resolution');
-      
+      const mediaResponse = await this.axiosInstance.get(
+        '/axis-cgi/param.cgi?action=list&group=Properties.Image.Resolution'
+      );
+
       if (mediaResponse.status === 200) {
         const resolutions = this.parseParameterList(mediaResponse.data);
         const resolutionValues = resolutions['Properties.Image.Resolution'].split(',');
-        
+
         // Get the highest resolution
         let highestRes = { width: 1920, height: 1080 };
-        
+
         for (const res of resolutionValues) {
           const [width, height] = res.split('x').map(Number);
-          if (width && height && (width * height > highestRes.width * highestRes.height)) {
+          if (width && height && width * height > highestRes.width * highestRes.height) {
             highestRes = { width, height };
           }
         }
-        
+
         // Main H.264 stream
         streams.push({
           id: 'axis-h264',
@@ -208,9 +220,9 @@ export class AxisProtocol extends AbstractCameraProtocol {
           type: 'rtsp',
           resolution: highestRes,
           format: 'H.264',
-          rtspUrl: `rtsp://${this.metadata.username}:${this.metadata.password}@${this.metadata.host}:554/axis-media/media.amp`
+          rtspUrl: `rtsp://${this.metadata.username}:${this.metadata.password}@${this.metadata.host}:554/axis-media/media.amp`,
         });
-        
+
         // MJPEG stream
         streams.push({
           id: 'axis-mjpeg',
@@ -219,9 +231,9 @@ export class AxisProtocol extends AbstractCameraProtocol {
           type: 'mjpeg',
           resolution: highestRes,
           format: 'MJPEG',
-          mjpegUrl: `http://${this.metadata.username}:${this.metadata.password}@${this.metadata.host}/axis-cgi/mjpg/video.cgi`
+          mjpegUrl: `http://${this.metadata.username}:${this.metadata.password}@${this.metadata.host}/axis-cgi/mjpg/video.cgi`,
         });
-        
+
         // Snapshot
         streams.push({
           id: 'axis-snapshot',
@@ -230,15 +242,15 @@ export class AxisProtocol extends AbstractCameraProtocol {
           type: 'http',
           resolution: highestRes,
           format: 'JPEG',
-          httpUrl: `http://${this.metadata.username}:${this.metadata.password}@${this.metadata.host}/axis-cgi/jpg/image.cgi`
+          httpUrl: `http://${this.metadata.username}:${this.metadata.password}@${this.metadata.host}/axis-cgi/jpg/image.cgi`,
         });
       }
-      
+
       return streams;
     } catch (error) {
-      this.logger.error('Error getting streams from Axis camera', { 
-        cameraId: this.metadata.id, 
-        error 
+      this.logger.error('Error getting streams from Axis camera', {
+        cameraId: this.metadata.id,
+        error,
       });
       return [];
     }
@@ -256,79 +268,90 @@ export class AxisProtocol extends AbstractCameraProtocol {
           this.capabilities.ptz = true;
           this.capabilities.presets = true;
         }
-      } catch (e) {
+      } catch {
         // Not a PTZ camera
       }
-      
+
       // Check for audio capability
       try {
-        const audioResponse = await this.axiosInstance.get('/axis-cgi/param.cgi?action=list&group=Audio');
+        const audioResponse = await this.axiosInstance.get(
+          '/axis-cgi/param.cgi?action=list&group=Audio'
+        );
         if (audioResponse.status === 200) {
           this.capabilities.audio = true;
-          
+
           // Check for two-way audio
           const audioParams = this.parseParameterList(audioResponse.data);
-          if (audioParams['Audio.Input.NbrOfInputs'] && parseInt(audioParams['Audio.Input.NbrOfInputs'], 10) > 0) {
+          if (
+            audioParams['Audio.Input.NbrOfInputs'] &&
+            parseInt(audioParams['Audio.Input.NbrOfInputs'], 10) > 0
+          ) {
             this.capabilities.twoWayAudio = true;
           }
         }
-      } catch (e) {
+      } catch {
         // No audio support
       }
-      
+
       // Check for motion detection
       try {
-        const motionResponse = await this.axiosInstance.get('/axis-cgi/param.cgi?action=list&group=Motion');
+        const motionResponse = await this.axiosInstance.get(
+          '/axis-cgi/param.cgi?action=list&group=Motion'
+        );
         if (motionResponse.status === 200) {
           this.capabilities.motionDetection = true;
         }
-      } catch (e) {
+      } catch {
         // No motion detection
       }
-      
+
       // Check for events capability
       try {
         const eventsResponse = await this.axiosInstance.get('/axis-cgi/eventmgr.cgi?action=list');
         if (eventsResponse.status === 200) {
           this.capabilities.events = true;
         }
-      } catch (e) {
+      } catch {
         // No events support
       }
-      
+
       // Check for I/O ports
       try {
         const ioResponse = await this.axiosInstance.get('/axis-cgi/io/port.cgi?action=list');
         if (ioResponse.status === 200) {
           this.capabilities.ioPorts = true;
         }
-      } catch (e) {
+      } catch {
         // No I/O ports
       }
-      
+
       // Check for privacy mask capability
       try {
-        const privacyResponse = await this.axiosInstance.get('/axis-cgi/param.cgi?action=list&group=PrivacyMask');
+        const privacyResponse = await this.axiosInstance.get(
+          '/axis-cgi/param.cgi?action=list&group=PrivacyMask'
+        );
         if (privacyResponse.status === 200) {
           this.capabilities.privacyMask = true;
         }
-      } catch (e) {
+      } catch {
         // No privacy mask support
       }
-      
+
       // Check for WDR capability
       try {
-        const wdrResponse = await this.axiosInstance.get('/axis-cgi/param.cgi?action=list&group=Properties.Image.WDR');
+        const wdrResponse = await this.axiosInstance.get(
+          '/axis-cgi/param.cgi?action=list&group=Properties.Image.WDR'
+        );
         if (wdrResponse.status === 200) {
           this.capabilities.wdr = true;
         }
-      } catch (e) {
+      } catch {
         // No WDR support
       }
     } catch (error) {
-      this.logger.error('Error fetching camera capabilities', { 
-        cameraId: this.metadata.id, 
-        error 
+      this.logger.error('Error fetching camera capabilities', {
+        cameraId: this.metadata.id,
+        error,
       });
     }
   }
@@ -341,49 +364,54 @@ export class AxisProtocol extends AbstractCameraProtocol {
       this.logger.warn('Camera does not support PTZ', { cameraId: this.metadata.id });
       return false;
     }
-    
+
     try {
       const ptzParams = new URLSearchParams();
-      
+
       switch (command.action) {
         case 'move':
           // Handle continuous move
           if (command.params?.pan) {
-            ptzParams.append('continuouspantiltmove', `${command.params.pan},${command.params.tilt || 0}`);
+            ptzParams.append(
+              'continuouspantiltmove',
+              `${command.params.pan},${command.params.tilt || 0}`
+            );
           }
           if (command.params?.zoom) {
             ptzParams.append('continuouszoommove', `${command.params.zoom}`);
           }
           break;
-          
+
         case 'stop':
           ptzParams.append('continuouspantiltmove', '0,0');
           ptzParams.append('continuouszoommove', '0');
           break;
-          
+
         case 'preset':
           if (command.params?.preset) {
             ptzParams.append('gotoserverpresetno', command.params.preset.toString());
           }
           break;
-          
+
         case 'home':
           ptzParams.append('move', 'home');
           break;
-          
+
         default:
           throw new Error(`Unsupported PTZ action: ${command.action}`);
       }
-      
+
       // Execute PTZ command
-      const response = await this.axiosInstance.get(`/axis-cgi/com/ptz.cgi?${ptzParams.toString()}`);
-      
+      const response = await this.axiosInstance.get(
+        `/axis-cgi/com/ptz.cgi?${ptzParams.toString()}`
+      );
+
       return response.status === 200;
     } catch (error) {
-      this.logger.error('Error executing PTZ command', { 
-        cameraId: this.metadata.id, 
-        command, 
-        error 
+      this.logger.error('Error executing PTZ command', {
+        cameraId: this.metadata.id,
+        command,
+        error,
       });
       return false;
     }
@@ -397,34 +425,35 @@ export class AxisProtocol extends AbstractCameraProtocol {
       this.logger.warn('Camera does not support presets', { cameraId: this.metadata.id });
       return [];
     }
-    
+
     try {
       const response = await this.axiosInstance.get('/axis-cgi/com/ptz.cgi?query=presetposcam');
-      
+
       if (response.status !== 200) {
         throw new Error(`Failed to get presets: ${response.statusText}`);
       }
-      
+
       const presets: CameraPreset[] = [];
       const lines = response.data.split('\n');
-      
+
       for (const line of lines) {
         // Format: presetposno=X presetposname="Name"
         const match = line.match(/presetposno=(\d+)\s+presetposname="([^"]+)"/);
         if (match) {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
           const [_, id, name] = match;
           presets.push({
             id,
-            name
+            name,
           });
         }
       }
-      
+
       return presets;
     } catch (error) {
-      this.logger.error('Error getting presets', { 
-        cameraId: this.metadata.id, 
-        error 
+      this.logger.error('Error getting presets', {
+        cameraId: this.metadata.id,
+        error,
       });
       return [];
     }
@@ -433,42 +462,43 @@ export class AxisProtocol extends AbstractCameraProtocol {
   /**
    * Create a new camera preset
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
   async createPreset(name: string, position?: any): Promise<CameraPreset | null> {
     if (!this.capabilities.ptz) {
       this.logger.warn('Camera does not support presets', { cameraId: this.metadata.id });
       return null;
     }
-    
+
     try {
       // Get existing presets to find next available ID
       const existingPresets = await this.getPresets();
       let nextId = 1;
-      
+
       while (existingPresets.some(preset => preset.id === nextId.toString())) {
         nextId++;
       }
-      
+
       // Create preset
       const params = new URLSearchParams();
       params.append('action', 'update');
       params.append('presetposno', nextId.toString());
       params.append('presetposname', name);
-      
+
       const response = await this.axiosInstance.get(`/axis-cgi/com/ptz.cgi?${params.toString()}`);
-      
+
       if (response.status === 200) {
         return {
           id: nextId.toString(),
-          name
+          name,
         };
       }
-      
+
       return null;
     } catch (error) {
-      this.logger.error('Error creating preset', { 
-        cameraId: this.metadata.id, 
+      this.logger.error('Error creating preset', {
+        cameraId: this.metadata.id,
         name,
-        error 
+        error,
       });
       return null;
     }
@@ -482,20 +512,20 @@ export class AxisProtocol extends AbstractCameraProtocol {
       this.logger.warn('Camera does not support presets', { cameraId: this.metadata.id });
       return false;
     }
-    
+
     try {
       const params = new URLSearchParams();
       params.append('action', 'removeserverpresetno');
       params.append('serverpresetno', presetId);
-      
+
       const response = await this.axiosInstance.get(`/axis-cgi/com/ptz.cgi?${params.toString()}`);
-      
+
       return response.status === 200;
     } catch (error) {
-      this.logger.error('Error deleting preset', { 
-        cameraId: this.metadata.id, 
+      this.logger.error('Error deleting preset', {
+        cameraId: this.metadata.id,
         presetId,
-        error 
+        error,
       });
       return false;
     }
@@ -509,7 +539,7 @@ export class AxisProtocol extends AbstractCameraProtocol {
       // Axis snapshots are available via jpg/image.cgi
       // We can optionally request a specific resolution
       let params = '';
-      
+
       // If a specific stream was requested, try to get its resolution
       if (streamId) {
         const streams = await this.getAvailableStreams();
@@ -518,21 +548,21 @@ export class AxisProtocol extends AbstractCameraProtocol {
           params = `?resolution=${stream.resolution.width}x${stream.resolution.height}`;
         }
       }
-      
+
       const response = await this.axiosInstance.get(`/axis-cgi/jpg/image.cgi${params}`, {
-        responseType: 'arraybuffer'
+        responseType: 'arraybuffer',
       });
-      
+
       if (response.status === 200) {
         return Buffer.from(response.data);
       }
-      
+
       return null;
     } catch (error) {
-      this.logger.error('Error getting snapshot', { 
-        cameraId: this.metadata.id, 
-        streamId, 
-        error 
+      this.logger.error('Error getting snapshot', {
+        cameraId: this.metadata.id,
+        streamId,
+        error,
       });
       return null;
     }
@@ -546,24 +576,24 @@ export class AxisProtocol extends AbstractCameraProtocol {
       this.logger.warn('Camera does not support events', { cameraId: this.metadata.id });
       return '';
     }
-    
+
     try {
       // Generate a unique subscription ID
       const subscriptionId = `axis-${Date.now()}`;
-      
+
       // Axis event handling typically involves setting up action rules
       // We need to create a rule that will send HTTP notifications to our server
-      
+
       // First, build the event expression based on requested event types
       let eventExpression = '';
-      
+
       if (eventTypes.length === 0) {
         // Default to detecting all common events
         eventExpression = 'MotionDetection or TamperingDetection or PIRDetection';
       } else {
         eventExpression = eventTypes.join(' or ');
       }
-      
+
       // Create the action rule
       const params = new URLSearchParams();
       params.append('action', 'add');
@@ -575,25 +605,27 @@ export class AxisProtocol extends AbstractCameraProtocol {
       params.append('path', `/api/events/axis/${this.metadata.id}`);
       params.append('username', process.env.EVENT_RECEIVER_USERNAME || 'admin');
       params.append('password', process.env.EVENT_RECEIVER_PASSWORD || 'admin');
-      
-      const response = await this.axiosInstance.get(`/axis-cgi/actionengine.cgi?${params.toString()}`);
-      
+
+      const response = await this.axiosInstance.get(
+        `/axis-cgi/actionengine.cgi?${params.toString()}`
+      );
+
       if (response.status === 200) {
         // Store subscription info
         this.subscriptions.set(subscriptionId, {
           eventTypes,
-          ruleName: `OmniSight-${subscriptionId}`
+          ruleName: `OmniSight-${subscriptionId}`,
         });
-        
+
         return subscriptionId;
       }
-      
+
       return '';
     } catch (error) {
-      this.logger.error('Error subscribing to events', { 
-        cameraId: this.metadata.id, 
+      this.logger.error('Error subscribing to events', {
+        cameraId: this.metadata.id,
         eventTypes,
-        error 
+        error,
       });
       return '';
     }
@@ -607,33 +639,35 @@ export class AxisProtocol extends AbstractCameraProtocol {
       this.logger.warn('Camera does not support events', { cameraId: this.metadata.id });
       return false;
     }
-    
+
     try {
       const subscription = this.subscriptions.get(subscriptionId);
-      
+
       if (!subscription) {
         this.logger.warn('Subscription not found', { subscriptionId });
         return false;
       }
-      
+
       // Remove the action rule
       const params = new URLSearchParams();
       params.append('action', 'remove');
       params.append('name', subscription.ruleName);
-      
-      const response = await this.axiosInstance.get(`/axis-cgi/actionengine.cgi?${params.toString()}`);
-      
+
+      const response = await this.axiosInstance.get(
+        `/axis-cgi/actionengine.cgi?${params.toString()}`
+      );
+
       if (response.status === 200) {
         this.subscriptions.delete(subscriptionId);
         return true;
       }
-      
+
       return false;
     } catch (error) {
-      this.logger.error('Error unsubscribing from events', { 
-        cameraId: this.metadata.id, 
+      this.logger.error('Error unsubscribing from events', {
+        cameraId: this.metadata.id,
         subscriptionId,
-        error 
+        error,
       });
       return false;
     }
@@ -642,14 +676,15 @@ export class AxisProtocol extends AbstractCameraProtocol {
   /**
    * Start recording on the camera (if supported)
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars
   async startRecording(options?: any): Promise<boolean> {
     try {
       const response = await this.axiosInstance.get('/axis-cgi/record.cgi?action=start');
       return response.status === 200;
     } catch (error) {
-      this.logger.error('Error starting recording', { 
-        cameraId: this.metadata.id, 
-        error 
+      this.logger.error('Error starting recording', {
+        cameraId: this.metadata.id,
+        error,
       });
       return false;
     }
@@ -663,9 +698,9 @@ export class AxisProtocol extends AbstractCameraProtocol {
       const response = await this.axiosInstance.get('/axis-cgi/record.cgi?action=stop');
       return response.status === 200;
     } catch (error) {
-      this.logger.error('Error stopping recording', { 
-        cameraId: this.metadata.id, 
-        error 
+      this.logger.error('Error stopping recording', {
+        cameraId: this.metadata.id,
+        error,
       });
       return false;
     }
@@ -679,9 +714,9 @@ export class AxisProtocol extends AbstractCameraProtocol {
       const response = await this.axiosInstance.get('/axis-cgi/admin/restart.cgi');
       return response.status === 200;
     } catch (error) {
-      this.logger.error('Error rebooting camera', { 
-        cameraId: this.metadata.id, 
-        error 
+      this.logger.error('Error rebooting camera', {
+        cameraId: this.metadata.id,
+        error,
       });
       return false;
     }
@@ -690,22 +725,23 @@ export class AxisProtocol extends AbstractCameraProtocol {
   /**
    * Update camera settings
    */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async updateSettings(settings: any): Promise<boolean> {
     try {
       const params = new URLSearchParams();
       params.append('action', 'update');
-      
+
       for (const [key, value] of Object.entries(settings)) {
         params.append(key, String(value));
       }
-      
+
       const response = await this.axiosInstance.get(`/axis-cgi/param.cgi?${params.toString()}`);
       return response.status === 200;
     } catch (error) {
-      this.logger.error('Error updating camera settings', { 
-        cameraId: this.metadata.id, 
+      this.logger.error('Error updating camera settings', {
+        cameraId: this.metadata.id,
         settings,
-        error 
+        error,
       });
       return false;
     }
@@ -716,10 +752,10 @@ export class AxisProtocol extends AbstractCameraProtocol {
    */
   private parseServerReport(data: string): Record<string, string> {
     const result: Record<string, string> = {};
-    
+
     if (typeof data === 'string') {
       const lines = data.split('\n');
-      
+
       for (const line of lines) {
         if (line.includes('=')) {
           const [key, value] = line.split('=', 2);
@@ -727,7 +763,7 @@ export class AxisProtocol extends AbstractCameraProtocol {
         }
       }
     }
-    
+
     return result;
   }
 
@@ -736,10 +772,10 @@ export class AxisProtocol extends AbstractCameraProtocol {
    */
   private parseParameterList(data: string): Record<string, string> {
     const result: Record<string, string> = {};
-    
+
     if (typeof data === 'string') {
       const lines = data.split('\n');
-      
+
       for (const line of lines) {
         if (line.includes('=')) {
           const [key, value] = line.split('=', 2);
@@ -747,7 +783,7 @@ export class AxisProtocol extends AbstractCameraProtocol {
         }
       }
     }
-    
+
     return result;
   }
 }
