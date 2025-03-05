@@ -8,7 +8,7 @@ export default [
   prettierConfig,
   {
     files: ['**/*.{ts,tsx,js,jsx}'],
-    ignores: ['**/node_modules/**', '**/dist/**', '**/build/**'],
+    ignores: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/*.d.ts'],
     languageOptions: {
       ecmaVersion: 2020,
       sourceType: 'module',
@@ -37,9 +37,13 @@ export default [
         varsIgnorePattern: '^_'
       }],
       
-      // Make the no-explicit-any rule a warning instead of error 
+      // Make the no-explicit-any rule a warning instead of error
       // for most cases, while still encouraging better typing
-      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-explicit-any': ['warn', {
+        // Allow using any in .d.ts files which are often for interop with JS libraries
+        fixToUnknown: false,
+        ignoreRestArgs: true
+      }],
       
       // Allow require imports in specific cases (like for CommonJS modules)
       '@typescript-eslint/no-require-imports': 'warn',
